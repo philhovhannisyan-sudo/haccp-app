@@ -153,8 +153,8 @@ function fieldErr(el, msg) {
 }
 const STATUS_CLS = { 'Принято': 'ok', 'Карантин': 'warn', 'Отказ': 'bad' };
 const statusBadge = r => `<span class="badge ${STATUS_CLS[r.status] || 'bad'}">${esc(r.status)}</span>`;
-const icon = n => `<svg class="ic"><use href="#i-${n}"/></svg>`;
-const okMark = v => v ? `<span class="mark ok" title="Да">${icon('check')}</span>` : `<span class="mark bad" title="Нет">${icon('x')}</span>`;
+const icon = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const okMark = v => v ? `<span class="mark ok" role="img" aria-label="Да" title="Да">${icon('check')}</span>` : `<span class="mark bad" role="img" aria-label="Нет" title="Нет">${icon('x')}</span>`;
 // Входной контроль одной ячейкой: «3/3» или «2/3 · документы»
 function checks(r) {
   const items = [['органолептика', r.organoleptic], ['документы', r.docsOk], ['примеси', r.pestOk]];
@@ -167,14 +167,14 @@ function toast(msg, kind = 'error') {
   let box = document.getElementById('toasts');
   if (!box) { box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('aria-live', 'polite'); document.body.append(box); }
   const t = document.createElement('div');
-  t.className = `toast ${kind}`; t.innerHTML = `${icon(kind === 'ok' ? 'check' : 'x')}<span>${esc(msg)}</span>`;
+  t.className = `toast ${kind}`; t.setAttribute('role', kind === 'ok' ? 'status' : 'alert'); t.innerHTML = `${icon(kind === 'ok' ? 'check' : 'x')}<span>${esc(msg)}</span>`;
   box.append(t);
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 200); }, 4000);
 }
 function ask(msg, okLabel = 'Да', danger = false) {
   const d = document.createElement('dialog');
-  d.className = 'ask';
-  d.innerHTML = `<form method="dialog"><p>${esc(msg)}</p><div class="row"><button value="" class="btn">Отмена</button>
+  d.className = 'ask'; d.setAttribute('aria-labelledby', 'askMsg');
+  d.innerHTML = `<form method="dialog"><p id="askMsg">${esc(msg)}</p><div class="row"><button value="" class="btn">Отмена</button>
     <button value="ok" class="btn ${danger ? 'danger-solid' : 'primary'}">${esc(okLabel)}</button></div></form>`;
   document.body.append(d); d.showModal();
   return new Promise(res => d.addEventListener('close', () => { res(d.returnValue === 'ok'); d.remove(); }));
@@ -314,7 +314,10 @@ function fromHash() {
 }
 function setTab(t, f = null) {
   tab = t; editing = null; formOpen = false; formDirty = false; filterText = ''; flag = f; period = { from: '', to: '' };
-  document.querySelectorAll('#tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  document.querySelectorAll('#tabs button[data-tab]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === t);
+    if (b.dataset.tab === t) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   document.querySelector('#tabs [data-more-tabs]').classList.toggle('active', MORE_TABS.some(([k]) => k === t));
 }
 // Незаполненная до конца форма не закрывается молча
@@ -326,7 +329,8 @@ async function canLeave() {
 addEventListener('beforeunload', e => { if (formDirty && (formOpen || editing)) e.preventDefault(); });
 // На телефоне в нижней панели 5 вкладок, остальные — в «Ещё»
 const MORE_TABS = [['suppliers', 'Поставщики', 'users'], ['settings', 'Данные', 'db']];
-function go(t, f = null) { setTab(t, f); render(); pushHash(); }
+function go(t, f = null) { setTab(t, f); render(); pushHash(); focusTitle(); }
+const focusTitle = () => app.querySelector('h1')?.focus({ preventScroll: true });
 addEventListener('popstate', () => { fromHash(); render(); scrollTo(0, 0); });
 document.getElementById('tabs').onclick = async e => {
   const btn = e.target.closest('button');
@@ -335,10 +339,22 @@ document.getElementById('tabs').onclick = async e => {
 };
 document.getElementById('syncBadge').onclick = () => ghOn() ? sync() : go('settings');
 
+// Перерисовка не должна сбрасывать фокус клавиатуры: возвращаем его на тот же элемент
+const FOCUS_ATTRS = ['id', 'data-edit', 'data-void', 'data-more', 'data-sort', 'data-flag', 'data-go', 'data-today', 'data-trace', 'data-add', 'data-showvoid', 'data-unflag'];
+function focusSel(el) {
+  if (!el || !app.contains(el)) return null;
+  for (const a of FOCUS_ATTRS) if (el.hasAttribute(a) && (a !== 'id' || el.id)) return a === 'id' ? '#' + CSS.escape(el.id) : `[${a}="${CSS.escape(el.getAttribute(a))}"]`;
+  return 'h1';
+}
 function render() {
   closeMenu();
+  const sel = focusSel(document.activeElement);
   app.innerHTML = { overview: viewOverview, trace: viewTrace, suppliers: viewSuppliers, receipts: viewReceipts, batches: viewBatches, shipments: viewShipments, settings: viewSettings }[tab]();
+  app.querySelector('h1')?.setAttribute('tabindex', '-1');
   bind();
+  // Если кнопки больше нет (запись аннулирована), фокус — на «⋯» той же строки
+  const alt = sel?.replace(/^\[data-(edit|void)=/, '[data-more=');
+  if (sel && !app.contains(document.activeElement)) (app.querySelector(sel) || app.querySelector(alt) || app.querySelector('h1'))?.focus({ preventScroll: true });
 }
 
 function crudForm(list, title, extra = '') {
@@ -367,7 +383,7 @@ function journal(list, { title, formTitle, head, row, keys = [], extra = '', rev
       ${f ? `<button class="chip" data-unflag>${esc(f.label)} ${icon('x')}</button>` : nVoided ? `<button class="chip quiet" data-showvoid>${icon('ban')} Аннулированные: ${nVoided}</button>` : ''}
       ${items.length > 1 ? `<select id="sortSel" class="phone-only" aria-label="Сортировка"><option value="">Сортировка: по умолчанию</option>${head.flatMap((h, i) => [[i, 1, '↑'], [i, -1, '↓']].map(([k, d, ar]) => `<option value="${k}:${d}" ${sortState[list]?.i === k && sortState[list]?.dir === d ? 'selected' : ''}>${h} ${ar}</option>`)).join('')}</select>` : ''}
       <span class="tools"><button class="btn" id="csv" title="Скачать таблицу для Excel">${icon('table')} Excel</button><button class="btn" onclick="print()">${icon('print')} Печать</button></span></div>` : ''}
-    ${items.length ? `<div class="card tbl jr"><table data-keys="${keys.join(',')}"><tr>${head.map((h, i) => `<th><button type="button" class="sort" data-sort="${i}">${h}</button></th>`).join('')}<th></th></tr>${items.map(row).join('')}</table></div>` : ''}
+    ${items.length ? `<div class="card tbl jr"><table data-keys="${keys.join(',')}"><thead><tr>${head.map((h, i) => `<th scope="col"><button type="button" class="sort" data-sort="${i}">${h}</button></th>`).join('')}<th scope="col"></th></tr></thead><tbody>${items.map(row).join('')}</tbody></table></div>` : ''}
     <p class="empty" id="noMatch" ${items.length || (open && !db[list].length) ? 'hidden' : ''}>${db[list].length ? 'Нет записей по этому фильтру.' : 'Записей пока нет — нажмите «+ Добавить», чтобы внести первую.'}</p>`;
 }
 // На виду — «Изменить» и «Аннулировать»; удаление и восстановление — в меню «⋯»
@@ -461,13 +477,13 @@ function viewOverview() {
     ${kpi(ccpFail.length, 'Отклонения ККТ', 'ccp', true)}${kpi(rejected.length, 'Отказ / карантин при приёмке', 'rejected', true)}</div>
     <div class="cols">
     <div class="card tbl"><h2>Последние партии</h2>${db.batches.length ? '' : none('Партий пока нет')}<table>
-      <tr><th>Код</th><th>Дата</th><th>Продукт</th><th>Банок</th><th>ОТК</th></tr>
+      <thead><tr><th scope="col">Код</th><th scope="col">Дата</th><th scope="col">Продукт</th><th scope="col">Банок</th><th scope="col">ОТК</th></tr></thead><tbody>
       ${recent('batches').map(b => `<tr><td><a href="#" data-trace="${b.code}">${b.code}</a></td><td class="num">${fmtD(b.date)}</td><td>${esc(b.product)}</td>
-      <td class="num">${restOfBatch(b)} / ${b.jars}</td><td>${b.released ? '<span class="badge ok">Выпущено</span>' : '<span class="badge warn">Ожидает</span>'}</td></tr>`).join('')}</table></div>
+      <td class="num">${restOfBatch(b)} / ${b.jars}</td><td>${b.released ? '<span class="badge ok">Выпущено</span>' : '<span class="badge warn">Ожидает</span>'}</td></tr>`).join('')}</tbody></table></div>
     <div class="card tbl"><h2>Последние поставки сырья</h2>${db.receipts.length ? '' : none('Поставок пока нет')}<table>
-      <tr><th>Лот</th><th>Дата</th><th>Сырьё</th><th>Остаток</th><th>Статус</th></tr>
+      <thead><tr><th scope="col">Лот</th><th scope="col">Дата</th><th scope="col">Сырьё</th><th scope="col">Остаток</th><th scope="col">Статус</th></tr></thead><tbody>
       ${recent('receipts').map(r => `<tr><td><a href="#" data-trace="${r.code}">${r.code}</a></td><td class="num">${fmtD(r.date)}</td><td>${esc(r.material)}</td>
-      <td class="num">${restOfReceipt(r)} ${r.unit}</td><td>${statusBadge(r)}</td></tr>`).join('')}</table></div>
+      <td class="num">${restOfReceipt(r)} ${r.unit}</td><td>${statusBadge(r)}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
 }
 
@@ -508,8 +524,8 @@ function receiptBlock(r, used) {
 function shipmentsTable(b) {
   const sh = db.shipments.filter(s => s.batchId === b.id);
   return `<div class="chain ship"><h3>Реализация (отгружено ${shippedOfBatch(b.id)} из ${b.jars}, на складе ${restOfBatch(b)})</h3>
-    ${sh.length ? `<div class="tbl"><table><tr><th>Дата</th><th>Покупатель</th><th>Банок</th><th>Накладная</th><th>Транспорт</th></tr>
-    ${sh.map(s => `${tr(s)}<td>${fmtD(s.date)}${voidBadge(s)}</td><td>${esc(s.customer)}</td><td>${s.qty}</td><td>${esc(s.invoice)}</td><td>${esc(s.vehicle)}</td></tr>`).join('')}</table></div>` : '<span class="muted">Отгрузок нет</span>'}</div>`;
+    ${sh.length ? `<div class="tbl"><table><thead><tr><th scope="col">Дата</th><th scope="col">Покупатель</th><th scope="col">Банок</th><th scope="col">Накладная</th><th scope="col">Транспорт</th></tr></thead><tbody>
+    ${sh.map(s => `${tr(s)}<td>${fmtD(s.date)}${voidBadge(s)}</td><td>${esc(s.customer)}</td><td>${s.qty}</td><td>${esc(s.invoice)}</td><td>${esc(s.vehicle)}</td></tr>`).join('')}</tbody></table></div>` : '<span class="muted">Отгрузок нет</span>'}</div>`;
 }
 
 // Схема цепочки: поставщики → лоты → партии → покупатели
@@ -550,7 +566,7 @@ function forwardTrace(r) {
     ${flow([flowStep(esc(byId('suppliers', r.supplierId)?.name || '—'), 'поставщик'), flowStep(r.code, 'лот сырья', true),
       flowStep(active.length, plural(active.length, 'партия', 'партии', 'партий')), flowStep(cust.size, plural(cust.size, 'покупатель', 'покупателя', 'покупателей'))])}
     <div class="recall"><b>Для отзыва:</b> ${active.length ? `партии ${active.map(b => b.code).join(', ')}; отгружено <b>${shipped}</b> банок, на складе <b>${stock}</b>.` : 'лот ещё не использован в производстве.'}
-      ${cust.size ? `<div class="tbl"><table><tr><th>Покупатель</th><th>Банок</th><th>Документы</th></tr>${[...cust].map(([c, x]) => `<tr><td>${esc(c)}</td><td>${x.qty}</td><td>${esc(x.docs.join(', ')) || '—'}</td></tr>`).join('')}</table></div>` : ''}</div>
+      ${cust.size ? `<div class="tbl"><table><thead><tr><th scope="col">Покупатель</th><th scope="col">Банок</th><th scope="col">Документы</th></tr></thead><tbody>${[...cust].map(([c, x]) => `<tr><td>${esc(c)}</td><td>${x.qty}</td><td>${esc(x.docs.join(', ')) || '—'}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>
     ${receiptBlock(r)}
     ${bs.length ? bs.map(b => `<div class="chain"><h3>→ Партия <a href="#" data-trace="${b.code}">${b.code}</a> — ${esc(b.product)}, ${fmtD(b.date)}, ${b.shift}${voidBadge(b)}</h3>
       ${shipmentsTable(b)}</div>`).join('') : '<p class="muted">Ещё не использовано в производстве.</p>'}</div>`;
@@ -573,7 +589,7 @@ function viewSettings() {
     <p class="muted">Значение ниже предела считается отклонением: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
     <form id="limForm" class="grid">${LIMITS.map(([k, l, d]) => `<label>${l}, не ниже<input name="${k}" type="number" step="any" required value="${lim(k)}" placeholder="${d}"></label>`).join('')}
     <div class="row" style="grid-column:1/-1"><button class="btn primary">Сохранить пределы</button></div></form></div>`;
-  return syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
+  return '<h1 class="page">Данные</h1>' + syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
     <button class="btn primary" id="exp">${icon('down')} Экспорт JSON</button>
     <label class="btn">${icon('up')} Импорт JSON<input type="file" id="imp" accept=".json" hidden></label>
     <button class="btn" id="demo">Загрузить демо-данные</button>
@@ -840,8 +856,8 @@ const WHO_KEY = 'haccp-trace-who';
 function askVoid(name) {
   let who = ''; try { who = localStorage.getItem(WHO_KEY) || ''; } catch {}
   const d = document.createElement('dialog');
-  d.className = 'ask';
-  d.innerHTML = `<form method="dialog"><h3>Аннулировать: ${esc(name)}?</h3>
+  d.className = 'ask'; d.setAttribute('aria-labelledby', 'voidTitle');
+  d.innerHTML = `<form method="dialog"><h3 id="voidTitle">Аннулировать: ${esc(name)}?</h3>
     <p class="muted">Запись останется в журнале и в прослеживании с пометкой «Аннулировано», но перестанет учитываться в остатках и сводке.</p>
     <label>Причина<textarea name="reason" rows="3" required placeholder="например: ошибка ввода, дубль записи, возврат поставщику"></textarea></label>
     <label>Кто аннулирует (ФИО)<input name="by" required value="${esc(who)}"></label>
