@@ -200,3 +200,67 @@ input.out{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
 input.out:focus{border-color:var(--bad);box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 25%,transparent)}
 label.need{color:var(--bad)}
 label.need input{border-color:var(--bad)}
+/* Нижняя панель: 5 вкладок + «Ещё» на телефоне */
+#tabs .more-tab{display:none}
+/* Формы: разделы, обязательные поля, строки сырья */
+h3.fs{grid-column:1/-1;margin:var(--s2) 0 -4px;padding-top:var(--s3);border-top:1px solid var(--border);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-2)}
+form.grid>h3.fs:first-child{border-top:0;padding-top:0;margin-top:0}
+.req{color:var(--bad);font-weight:600}
+.ing{align-items:center}
+.ing-q{display:flex;align-items:center;gap:6px}
+.ing-q input{width:110px}
+.ing-unit{min-width:22px;color:var(--fg-2);font-size:13px}
+/* Журналы: период, инструменты, сортировка */
+.period{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
+.period label{flex-direction:row;align-items:center;gap:6px;font-size:13px}
+.period input{width:auto}
+.tools{display:flex;gap:var(--s2);margin-left:auto}
+th .sort{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:2px}
+th .sort:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:2px}
+th[aria-sort=ascending] .sort::after{content:"↑"}
+th[aria-sort=descending] .sort::after{content:"↓"}
+.tbl .expand{display:none}
+.print-only{display:none}
+@media print{.print-only{display:block;color:#000;margin:0 0 12px}.expand,.sort::after{display:none!important}}
+/* Сводка */
+.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cols.top{margin-bottom:var(--s4)}
+.attn h2{display:flex;align-items:center;gap:6px}.attn h2 .ic{color:var(--warn)}
+.attn ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.attn p.ok{display:flex;align-items:center;gap:6px;margin:0}
+button.link{background:none;border:0;padding:0;font:inherit;color:var(--primary);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:left}
+.today{display:flex;gap:var(--s4);flex-wrap:wrap;margin:0}
+/* Прослеживание: схема цепочки и итог для отзыва */
+.flow{display:flex;align-items:stretch;gap:var(--s2);flex-wrap:wrap;margin:0 0 var(--s3)}
+.flow .step{border:1px solid var(--border);border-radius:var(--r);padding:6px 12px;min-width:90px}
+.flow .step b{display:block;font:600 15px var(--mono);word-break:break-word}
+.flow .step span{font-size:12px;color:var(--fg-2)}
+.flow .step.cur{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 8%,transparent)}
+.flow .arr{align-self:center;color:var(--fg-2)}
+.recall{background:var(--muted);border-radius:var(--r);padding:var(--s3) var(--s4);margin-bottom:var(--s3)}
+.recall .tbl{margin-top:var(--s2);background:var(--surface);border-radius:6px}
+dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r);background:#000;margin-bottom:var(--s2)}
+@media (pointer:coarse){button.link{min-height:32px}}
+@media (max-width:820px){
+  #tabs [data-tab=suppliers],#tabs [data-tab=settings]{display:none}
+  #tabs .more-tab{display:flex}
+  .side .sync{width:40px;justify-content:center;padding:0}
+  .side .sync span{display:none}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tools{margin-left:0}
+  /* Компактная карточка: ключевые поля, остальное — по «Подробнее» */
+  .tbl.jr tr:not(.open) td[data-extra]{display:none}
+  .tbl.jr .expand{display:inline-flex}
+  .flow .arr{transform:none}
+}
+.phone-only{display:none}
+@media (max-width:820px){.phone-only{display:block}#sortSel{flex:1;min-width:0}}
+@media (max-width:820px){
+  .tbl.jr td[data-label=""]{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap}
+  .tbl.jr .expand{margin-right:auto;order:-1;padding:0 var(--s2);border-color:transparent;color:var(--primary)}
+  .period{width:100%;flex-wrap:nowrap}
+  .period label{flex:1;min-width:0}
+  .period input{flex:1;min-width:0}
+  .flow{flex-direction:column;align-items:stretch;gap:4px}
+  .flow .arr{transform:rotate(90deg);align-self:flex-start;margin-left:var(--s4)}
+}
