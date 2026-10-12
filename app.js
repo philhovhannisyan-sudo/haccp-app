@@ -12,6 +12,9 @@ function migrate(d) {
   d = d || {};
   COLLS.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; d[c].forEach(r => { if (r.upd == null) r.upd = 0; }); });
   if (!d.deleted || typeof d.deleted !== 'object') d.deleted = {};
+  // Раньше решение по приёмке было галочкой «принято»; «нет» означало отказ или карантин — считаем карантином
+  d.receipts.forEach(r => { if (!r.status) r.status = r.accepted ? 'Принято' : 'Карантин'; r.accepted = r.status === 'Принято'; });
+  if (!d.limits || typeof d.limits !== 'object') d.limits = { upd: 0 };
   return d;
 }
 let db = load();
@@ -30,7 +33,7 @@ function tombstones() {
 
 // Объединение двух версий: по каждой записи побеждает более позднее изменение
 function merge(a, b) {
-  const out = { deleted: { ...a.deleted } };
+  const out = { deleted: { ...a.deleted }, limits: (b.limits?.upd || 0) > (a.limits?.upd || 0) ? b.limits : a.limits };
   for (const [id, t] of Object.entries(b.deleted)) out.deleted[id] = Math.max(out.deleted[id] || 0, t);
   for (const c of COLLS) {
     const m = new Map();
@@ -119,6 +122,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const byId = (list, id) => db[list].find(x => x.id === id);
 const today = () => new Date().toISOString().slice(0, 10);
 const ymd = d => d.replaceAll('-', '').slice(2);
+const STATUS_CLS = { 'Принято': 'ok', 'Карантин': 'warn', 'Отказ': 'bad' };
+const statusBadge = r => `<span class="badge ${STATUS_CLS[r.status] || 'bad'}">${esc(r.status)}</span>`;
 const icon = n => `<svg class="ic"><use href="#i-${n}"/></svg>`;
 const okMark = v => v ? `<span class="mark ok" title="Да">${icon('check')}</span>` : `<span class="mark bad" title="Нет">${icon('x')}</span>`;
 // Входной контроль одной ячейкой: «3/3» или «2/3 · документы»
@@ -146,6 +151,22 @@ function ask(msg, okLabel = 'Да', danger = false) {
   return new Promise(res => d.addEventListener('close', () => { res(d.returnValue === 'ok'); d.remove(); }));
 }
 
+// ---------- критические пределы ККТ ----------
+// Значение ниже предела — отклонение; при отклонении обязательно корректирующее действие
+const LIMITS = [
+  ['cookTemp', 'T° варки, °C', 100], ['brix', 'Brix готового, %', 60], ['fillTemp', 'T° фасовки, °C', 80],
+  ['pasteurTemp', 'T° пастеризации, °C', 85], ['pasteurTime', 'Время пастеризации, мин', 10],
+];
+const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMITS.find(l => l[0] === k)[2] : +v; };
+const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
+function deviations(b) {
+  const out = LIMITS.filter(([k]) => isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
+  if (!b.metalOk) out.push('металлодетектор не пройден');
+  if (!b.capOk) out.push('укупорка не герметична');
+  return out;
+}
+const limCell = (b, k, text) => isOut(b, k) ? `<span class="bad" title="Ниже предела ${lim(k)}">${text}</span>` : text;
+
 // ---------- расчёт остатков ----------
 // Аннулированные записи остаются в журнале, но не участвуют в остатках и сводке
 const live = r => !r.voided;
@@ -169,7 +190,7 @@ const FORMS = {
   ],
   receipts: [
     ['date', 'Дата приёмки', 'date', true], ['time', 'Время', 'time'], ['shift', 'Смена', SHIFTS, true],
-    ['supplierId', 'Поставщик', v => db.suppliers.filter(s => live(s) || s.id === v).map(s => [s.id, s.name]), true],
+    ['supplierId', 'Поставщик', v => db.suppliers.filter(s => live(s) || s.id === v).map(s => [s.id, s.name + (s.approved ? '' : ' (не одобрен)')]), true],
     ['material', 'Сырьё (клубника, сахар, пектин…)', 'text', true], ['qty', 'Количество', 'number', true],
     ['unit', 'Ед.', ['кг', 'л', 'шт'], true], ['supplierLot', 'Партия поставщика', 'text'],
     ['invoice', '№ накладной / ТТН', 'text'], ['harvestDate', 'Дата сбора / изготовления', 'date'],
@@ -177,19 +198,19 @@ const FORMS = {
     ['productTemp', 'T° продукта, °C', 'number'], ['brix', 'Brix сырья, %', 'number'],
     ['organoleptic', 'Органолептика в норме', 'checkbox'], ['docsOk', 'Документы в порядке', 'checkbox'],
     ['pestOk', 'Нет вредителей / посторонних примесей', 'checkbox'],
-    ['accepted', 'ПРИНЯТО (иначе — отказ/карантин)', 'checkbox'],
+    ['status', 'Решение по приёмке', ['Принято', 'Карантин', 'Отказ'], true],
     ['storage', 'Место хранения', 'text'], ['responsible', 'Принял (ФИО)', 'text', true], ['note', 'Примечание', 'text'],
   ],
   batches: [
     ['date', 'Дата производства', 'date', true], ['shift', 'Смена', SHIFTS, true],
     ['product', 'Продукт (Варенье клубничное…)', 'text', true], ['line', 'Линия / котёл', 'text'],
-    ['cookTemp', 'ККТ: T° варки, °C', 'number'], ['cookTime', 'Время варки, мин', 'number'],
-    ['brix', 'ККТ: Brix готового, %', 'number'], ['fillTemp', 'T° фасовки, °C', 'number'],
-    ['pasteurTemp', 'ККТ: T° пастеризации, °C', 'number'], ['pasteurTime', 'Время пастеризации, мин', 'number'],
+    ['cookTemp', 'ККТ: T° варки, °C', 'number', true], ['cookTime', 'Время варки, мин', 'number'],
+    ['brix', 'ККТ: Brix готового, %', 'number', true], ['fillTemp', 'T° фасовки, °C', 'number'],
+    ['pasteurTemp', 'ККТ: T° пастеризации, °C', 'number', true], ['pasteurTime', 'Время пастеризации, мин', 'number'],
     ['metalOk', 'ККТ: металлодетектор пройден', 'checkbox'], ['capOk', 'Герметичность укупорки', 'checkbox'],
     ['jars', 'Выпущено банок, шт', 'number', true], ['jarSize', 'Фасовка (г)', 'number'],
     ['bestBefore', 'Годен до', 'date', true], ['operator', 'Технолог / мастер смены', 'text', true],
-    ['released', 'Выпуск одобрен ОТК', 'checkbox'], ['note', 'Примечание / отклонения', 'text'],
+    ['released', 'Выпуск одобрен ОТК', 'checkbox'], ['corrective', 'Корректирующее действие (при отклонении ККТ)', 'text'], ['note', 'Примечание', 'text'],
   ],
   shipments: [
     ['date', 'Дата отгрузки', 'date', true],
@@ -199,13 +220,16 @@ const FORMS = {
   ],
 };
 
-function field([name, label, type, req], val) {
+// Температуры могут быть отрицательными (замороженное сырьё), остальные числа — нет
+const SIGNED = ['transportTemp', 'productTemp', 'cookTemp', 'fillTemp', 'pasteurTemp'];
+function field([name, label, type, req], val, list) {
   const r = req ? 'required' : '';
+  if (list === 'batches' && LIMITS.some(l => l[0] === name)) label += ` <span class="lim">≥ ${lim(name)}</span>`;
   if (type === 'checkbox') return `<label><span><input type="checkbox" name="${name}" ${val ? 'checked' : ''}> ${label}</span></label>`;
   let opts = Array.isArray(type) ? type.map(o => [o, o]) : typeof type === 'function' ? type(val) : null;
   if (opts) return `<label>${label}<select name="${name}" ${r}><option value=""></option>${opts.map(([v, t]) =>
     `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
-  return `<label>${label}<input type="${type}" name="${name}" value="${esc(val ?? (type === 'date' && name === 'date' ? today() : ''))}" ${type === 'number' ? 'step="any"' : ''} ${r}></label>`;
+  return `<label>${label}<input type="${type}" name="${name}" value="${esc(val ?? (type === 'date' && name === 'date' ? today() : ''))}" ${type === 'number' ? `step="any"${SIGNED.includes(name) ? '' : ' min="0"'}` : ''} ${r}></label>`;
 }
 function readForm(form, fields) {
   const o = {};
@@ -222,17 +246,28 @@ const app = document.getElementById('app');
 // Готовые фильтры, на которые ведут карточки сводки
 const FLAGS = {
   instock: { tab: 'receipts', label: 'На складе', fn: r => live(r) && r.accepted && restOfReceipt(r) > 0 },
+  quarantine: { tab: 'receipts', label: 'Карантин', fn: r => live(r) && r.status === 'Карантин' },
   rejected: { tab: 'receipts', label: 'Отказ / карантин', fn: r => live(r) && !r.accepted },
   stock: { tab: 'batches', label: 'Есть на складе ГП', fn: b => live(b) && restOfBatch(b) > 0 },
   unreleased: { tab: 'batches', label: 'Ждут одобрения ОТК', fn: b => live(b) && !b.released },
-  ccp: { tab: 'batches', label: 'Отклонения ККТ', fn: b => live(b) && (!b.metalOk || !b.capOk) },
+  ccp: { tab: 'batches', label: 'Отклонения ККТ', fn: b => live(b) && deviations(b).length > 0 },
   voided: { tab: null, label: 'Аннулированные', fn: r => r.voided },
 };
-function go(t, f = null) {
+const TABS = ['overview', 'trace', 'suppliers', 'receipts', 'batches', 'shipments', 'settings'];
+function hashFor() { return '#' + tab + (tab === 'trace' && traceQuery ? '/' + encodeURIComponent(traceQuery) : flag ? '/' + flag : ''); }
+function pushHash() { if (location.hash !== hashFor()) history.pushState(null, '', hashFor()); }
+function fromHash() {
+  const [t, arg = ''] = location.hash.slice(1).split('/');
+  const a = decodeURIComponent(arg);
+  setTab(TABS.includes(t) ? t : 'overview', FLAGS[a] ? a : null);
+  if (tab === 'trace') traceQuery = a;
+}
+function setTab(t, f = null) {
   tab = t; editing = null; formOpen = false; filterText = ''; flag = f;
   document.querySelectorAll('#tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
-  render();
 }
+function go(t, f = null) { setTab(t, f); render(); pushHash(); }
+addEventListener('popstate', () => { fromHash(); render(); scrollTo(0, 0); });
 document.getElementById('tabs').onclick = e => {
   const btn = e.target.closest('button');
   if (btn?.dataset.tab) { go(btn.dataset.tab); scrollTo(0, 0); }
@@ -248,7 +283,7 @@ function render() {
 function crudForm(list, title, extra = '') {
   const rec = editing ? byId(list, editing) : null;
   return `<div class="card" id="formCard"><h2>${rec ? 'Редактирование ' + esc(rec.code || rec.name) : title}</h2>
-    <form class="grid" data-list="${list}">${FORMS[list].map(f => field(f, rec?.[f[0]])).join('')}${extra}
+    <form class="grid" data-list="${list}">${FORMS[list].map(f => field(f, rec?.[f[0]], list)).join('')}${extra}
     <div class="row"><button class="btn primary">${rec ? 'Сохранить' : 'Добавить'}</button>
     <button type="button" class="btn" data-cancel>Отмена</button></div></form></div>`;
 }
@@ -288,7 +323,7 @@ function viewReceipts() {
     <td>${esc(byId('suppliers', r.supplierId)?.name)}</td><td>${esc(r.material)}<br><span class="muted">${esc(r.supplierLot)}</span></td>
     <td>${r.qty} ${r.unit}</td><td>${restOfReceipt(r)} ${r.unit}</td><td>${esc(r.productTemp)}</td><td>${esc(r.brix)}</td>
     <td>${checks(r)}</td>
-    <td>${r.accepted ? '<span class="badge ok">Принято</span>' : '<span class="badge bad">Отказ/карантин</span>'}</td><td>${esc(r.responsible)}</td>${actions('receipts', r)}</tr>` });
+    <td>${statusBadge(r)}</td><td>${esc(r.responsible)}</td>${actions('receipts', r)}</tr>` });
 }
 
 function ingredientRows(ings) {
@@ -304,9 +339,9 @@ function viewBatches() {
   const rec = editing ? byId('batches', editing) : null;
   return journal('batches', { title: 'Производство', formTitle: 'Производственная партия (варка)', extra: ingredientRows(rec?.ingredients),
     head: ['Код партии', 'Дата / смена', 'Продукт', 'Сырьё', 'Варка', 'Brix', 'Пастер.', 'Мет.', 'Банок', 'Остаток', 'Годен до', 'ОТК'],
-    row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${voidNote(b)}</td><td>${b.date}<br><span class="muted">${b.shift}</span></td>
+    row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${deviations(b).length ? `<br><span class="badge bad" title="${esc(deviations(b).join('; '))}">Отклонение ККТ</span>` : ''}${voidNote(b)}</td><td>${b.date}<br><span class="muted">${b.shift}</span></td>
     <td>${esc(b.product)}</td><td>${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return `${r?.code} ${esc(r?.material)}: ${i.qty}`; }).join('<br>')}</td>
-    <td>${esc(b.cookTemp)}° / ${esc(b.cookTime)}м</td><td>${esc(b.brix)}</td><td>${esc(b.pasteurTemp)}° / ${esc(b.pasteurTime)}м</td><td>${okMark(b.metalOk)}</td>
+    <td>${limCell(b, 'cookTemp', esc(b.cookTemp) + '°')} / ${esc(b.cookTime)}м</td><td>${limCell(b, 'brix', esc(b.brix))}</td><td>${limCell(b, 'pasteurTemp', esc(b.pasteurTemp) + '°')} / ${limCell(b, 'pasteurTime', esc(b.pasteurTime) + 'м')}</td><td>${okMark(b.metalOk)}</td>
     <td>${b.jars}</td><td>${restOfBatch(b)}</td><td>${b.bestBefore}</td><td>${okMark(b.released)}</td>${actions('batches', b)}</tr>` });
 }
 
@@ -343,7 +378,7 @@ function viewOverview() {
     <div class="card tbl"><h2>Последние поставки сырья</h2>${db.receipts.length ? '' : none('Поставок пока нет')}<table>
       <tr><th>Лот</th><th>Дата</th><th>Сырьё</th><th>Остаток</th><th>Статус</th></tr>
       ${recent('receipts').map(r => `<tr><td><a href="#" data-trace="${r.code}">${r.code}</a></td><td class="num">${r.date}</td><td>${esc(r.material)}</td>
-      <td class="num">${restOfReceipt(r)} ${r.unit}</td><td>${r.accepted ? '<span class="badge ok">Принято</span>' : '<span class="badge bad">Отказ</span>'}</td></tr>`).join('')}</table></div>
+      <td class="num">${restOfReceipt(r)} ${r.unit}</td><td>${statusBadge(r)}</td></tr>`).join('')}</table></div>
     </div>`;
 }
 
@@ -375,7 +410,7 @@ function receiptBlock(r, used) {
     <div>Поставщик: <b>${esc(s.name)}</b>, ИНН ${esc(s.inn) || '—'}, ${esc(s.address)}; сертификаты: ${esc(s.certificate) || '—'}; одобрен ${okMark(s.approved)}</div>
     <div>Входной контроль: T° трансп. ${esc(r.transportTemp) || '—'}°C, T° прод. ${esc(r.productTemp) || '—'}°C, Brix ${esc(r.brix) || '—'};
       органолептика ${okMark(r.organoleptic)}, документы ${okMark(r.docsOk)}, примеси/вредители ${okMark(r.pestOk)};
-      дата сбора ${r.harvestDate || '—'}, годен до ${r.expiry || '—'} — ${r.accepted ? '<span class="badge ok">ПРИНЯТО</span>' : '<span class="badge bad">ОТКАЗ</span>'}</div>
+      дата сбора ${r.harvestDate || '—'}, годен до ${r.expiry || '—'}; решение: ${statusBadge(r)}</div>
     ${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}</div>`;
 }
 
@@ -393,6 +428,7 @@ function backTrace(b) {
     <div>ККТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C;
       пастеризация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; металлодетектор ${okMark(b.metalOk)}; укупорка ${okMark(b.capOk)}</div>
     <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${b.bestBefore}, ОТК ${okMark(b.released)}</div>
+    ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
     ${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return r ? receiptBlock(r, i.qty) : ''; }).join('')}
     ${shipmentsTable(b)}</div>`;
@@ -418,7 +454,11 @@ function viewSettings() {
         <button type="button" class="btn" id="ghPull">Синхронизировать сейчас</button>
         <button type="button" class="btn danger" id="ghOff">Отключить</button></div>
     </form><p id="ghStatus" class="muted"></p></div>`;
-  return syncCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
+  const limCard = `<div class="card"><h2>Критические пределы ККТ</h2>
+    <p class="muted">Значение ниже предела считается отклонением: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
+    <form id="limForm" class="grid">${LIMITS.map(([k, l, d]) => `<label>${l}, не ниже<input name="${k}" type="number" step="any" required value="${lim(k)}" placeholder="${d}"></label>`).join('')}
+    <div class="row" style="grid-column:1/-1"><button class="btn primary">Сохранить пределы</button></div></form></div>`;
+  return syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
     <button class="btn primary" id="exp">${icon('down')} Экспорт JSON</button>
     <label class="btn">${icon('up')} Импорт JSON<input type="file" id="imp" accept=".json" hidden></label>
     <button class="btn" id="demo">Загрузить демо-данные</button>
@@ -430,7 +470,7 @@ function viewSettings() {
 function demo() {
   const s1 = { id: uid(), name: 'ООО «Ягодный край»', inn: '7701234567', address: 'Брянская обл.', phone: '+7 900 000-00-01', certificate: 'Декларация ЕАЭС №RU-Д-…', approved: true };
   const s2 = { id: uid(), name: 'АО «Сахарный завод»', inn: '3601234567', address: 'Воронеж', phone: '', certificate: 'ГОСТ 33222-2015, ДС', approved: true };
-  const rc = (s, material, qty, unit, date, shift, code) => ({ id: uid(), code, date, time: '08:30', shift, supplierId: s.id, material, qty, unit, supplierLot: 'L' + code.slice(-2), invoice: 'ТТН ' + code.slice(2), harvestDate: date, expiry: '', transportTemp: 4, productTemp: 6, brix: material === 'Клубника' ? 8 : '', organoleptic: true, docsOk: true, pestOk: true, accepted: true, storage: 'Камера №1', responsible: 'Иванова А.', note: '' });
+  const rc = (s, material, qty, unit, date, shift, code) => ({ id: uid(), code, date, time: '08:30', shift, supplierId: s.id, material, qty, unit, supplierLot: 'L' + code.slice(-2), invoice: 'ТТН ' + code.slice(2), harvestDate: date, expiry: '', transportTemp: 4, productTemp: 6, brix: material === 'Клубника' ? 8 : '', organoleptic: true, docsOk: true, pestOk: true, status: 'Принято', accepted: true, storage: 'Камера №1', responsible: 'Иванова А.', note: '' });
   const r1 = rc(s1, 'Клубника', 500, 'кг', '2026-09-28', '1 смена', 'R-260928-01');
   const r2 = rc(s2, 'Сахар', 1000, 'кг', '2026-09-28', '1 смена', 'R-260928-02');
   const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 85, pasteurTemp: 90, pasteurTime: 15, metalOk: true, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
@@ -456,6 +496,24 @@ function bind() {
         if (i.qty > restOfReceipt(r) + +prev) return toast(`Недостаточно сырья в лоте ${r.code}: остаток ${restOfReceipt(r) + +prev} ${r.unit}`);
       }
     }
+    const old = editing ? byId(list, editing) : null;
+    if (list === 'receipts') {
+      o.accepted = o.status === 'Принято';
+      if (!(+o.qty > 0)) return toast('Количество должно быть больше нуля.');
+      if (old) {
+        const used = usedOfReceipt(old.id);
+        if (+o.qty < used) return toast(`Из лота ${old.code} уже использовано ${used} ${old.unit} — количество не может быть меньше.`);
+        if (used > 0 && !o.accepted) return toast(`Лот ${old.code} уже использован в производстве — решение «${o.status}» поставить нельзя.`);
+      }
+      const s = byId('suppliers', o.supplierId);
+      if (!s.approved && o.supplierId !== old?.supplierId && !await ask(`Поставщик «${s.name}» не одобрен (аудит не пройден). Всё равно оформить приёмку?`, 'Оформить')) return;
+    }
+    if (list === 'batches') {
+      if (!(+o.jars > 0)) return toast('Количество банок должно быть больше нуля.');
+      if (old && +o.jars < shippedOfBatch(old.id)) return toast(`Из партии ${old.code} уже отгружено ${shippedOfBatch(old.id)} банок — выпуск не может быть меньше.`);
+      if (deviations(o).length && !o.corrective.trim()) { f.corrective.focus(); return toast(`Отклонение ККТ (${deviations(o).join('; ')}) — укажите корректирующее действие.`); }
+    }
+    if (list === 'shipments' && !(+o.qty > 0)) return toast('Количество банок должно быть больше нуля.');
     if (list === 'shipments') {
       const b = byId('batches', o.batchId), prev = editing ? +byId('shipments', editing).qty : 0;
       if (+o.qty > restOfBatch(b) + (editing && byId('shipments', editing).batchId === b.id ? prev : 0)) return toast(`На складе партии ${b.code} только ${restOfBatch(b)} банок`);
@@ -472,9 +530,19 @@ function bind() {
     toast(editing ? 'Изменения сохранены' : `Запись ${o.code || ''} добавлена`.replace('  ', ' '), 'ok');
     editing = null; formOpen = false; save(); render();
   });
+  const bf = app.querySelector('form[data-list=batches]');
+  if (bf) {
+    const check = () => {
+      const o = readForm(bf, FORMS.batches);
+      LIMITS.forEach(([k]) => bf.elements[k].classList.toggle('out', isOut(o, k)));
+      const dev = deviations(o).length > 0;
+      bf.corrective.required = dev; bf.corrective.closest('label').classList.toggle('need', dev);
+    };
+    bf.addEventListener('input', check); check();
+  }
   app.querySelector('[data-cancel]')?.addEventListener('click', () => { editing = null; formOpen = false; render(); });
   app.querySelector('[data-add]')?.addEventListener('click', () => { formOpen = true; render(); showForm(); });
-  app.querySelector('[data-unflag]')?.addEventListener('click', () => { flag = null; render(); });
+  app.querySelector('[data-unflag]')?.addEventListener('click', () => { flag = null; render(); pushHash(); });
   app.querySelectorAll('[data-flag]').forEach(b => b.onclick = () => { go(FLAGS[b.dataset.flag].tab, b.dataset.flag); scrollTo(0, 0); });
   app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { go(b.dataset.go); scrollTo(0, 0); if (b.hasAttribute('data-open')) { formOpen = true; render(); showForm(); } });
   const filter = app.querySelector('#filter');
@@ -486,7 +554,7 @@ function bind() {
   });
   app.querySelector('#addIng')?.addEventListener('click', () => app.querySelector('#ings').insertAdjacentHTML('beforeend', app.querySelector('#ingTpl').innerHTML));
   app.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { editing = b.dataset.edit.split(':')[1]; render(); showForm(); });
-  app.querySelector('[data-showvoid]')?.addEventListener('click', () => { flag = 'voided'; render(); });
+  app.querySelector('[data-showvoid]')?.addEventListener('click', () => { flag = 'voided'; render(); pushHash(); });
   app.querySelectorAll('[data-void]').forEach(b => b.onclick = () => { const [list, id] = b.dataset.void.split(':'); voidRecord(list, id); });
   app.querySelectorAll('[data-more]').forEach(b => b.onclick = () => {
     const [list, id] = b.dataset.more.split(':'), r = byId(list, id);
@@ -496,12 +564,11 @@ function bind() {
     ]);
   });
   app.querySelectorAll('[data-trace]').forEach(a => a.onclick = e => {
-    e.preventDefault(); traceQuery = a.dataset.trace; tab = 'trace';
-    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'trace'));
-    render(); scrollTo(0, 0);
+    e.preventDefault(); setTab('trace'); traceQuery = a.dataset.trace;
+    render(); pushHash(); scrollTo(0, 0);
   });
   const tf = app.querySelector('#traceForm');
-  if (tf) tf.onsubmit = async e => { e.preventDefault(); traceQuery = tf.q.value; render(); };
+  if (tf) tf.onsubmit = async e => { e.preventDefault(); traceQuery = tf.q.value.trim(); render(); pushHash(); };
   app.querySelector('#exp')?.addEventListener('click', () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));
@@ -510,6 +577,12 @@ function bind() {
   app.querySelector('#imp')?.addEventListener('change', async e => {
     try { db = merge(db, migrate(JSON.parse(await e.target.files[0].text()))); save(); render(); } catch { toast('Не удалось прочитать файл: нужен JSON, сохранённый кнопкой «Экспорт JSON»'); }
   });
+  const lf = app.querySelector('#limForm');
+  if (lf) lf.onsubmit = e => {
+    e.preventDefault();
+    db.limits = { ...Object.fromEntries(LIMITS.map(([k]) => [k, +lf.elements[k].value])), upd: Date.now() };
+    save(); toast('Пределы сохранены', 'ok');
+  };
   const ghForm = app.querySelector('#ghForm');
   if (ghForm) {
     status(syncState, syncText);
@@ -654,6 +727,7 @@ function applyFilter() {
   p.hidden = shown > 0; p.textContent = `Ничего не найдено по «${filterText.trim()}».`;
 }
 
+fromHash();
 render();
 status(ghOn() ? (isDirty() ? 'pending' : 'ok') : 'off');
 if (ghOn()) sync();
