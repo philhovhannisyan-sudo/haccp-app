@@ -15,6 +15,8 @@ function migrate(d) {
   // Раньше решение по приёмке было галочкой «принято»; «нет» означало отказ или карантин — считаем карантином
   d.receipts.forEach(r => { if (!r.status) r.status = r.accepted ? 'Принято' : 'Карантин'; r.accepted = r.status === 'Принято'; });
   if (!d.limits || typeof d.limits !== 'object') d.limits = { upd: 0 };
+  // Предел 85 был значением по умолчанию для пастеризации; для стерилизации по умолчанию 104
+  if (+d.limits.pasteurTemp === 85) delete d.limits.pasteurTemp;
   return d;
 }
 let db = load();
@@ -184,13 +186,14 @@ function ask(msg, okLabel = 'Да', danger = false) {
 // Значение ниже предела — отклонение; при отклонении обязательно корректирующее действие
 const LIMITS = [
   ['cookTemp', 'T° варки, °C', 100], ['brix', 'Brix готового, %', 60], ['fillTemp', 'T° фасовки, °C', 80],
-  ['pasteurTemp', 'T° пастеризации, °C', 85], ['pasteurTime', 'Время пастеризации, мин', 10],
+  // Поле называется pasteurTemp по старой памяти, теперь это T° стерилизации
+  ['pasteurTemp', 'T° стерилизации, °C', 104], ['pasteurTime', 'Время стерилизации, мин', 10],
+  ['pressure', 'Атмосферное давление, атм', 1.2],
 ];
 const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMITS.find(l => l[0] === k)[2] : +v; };
 const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
 function deviations(b) {
   const out = LIMITS.filter(([k]) => isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
-  if (!b.metalOk) out.push('металлодетектор не пройден');
   if (!b.capOk) out.push('укупорка не герметична');
   return out;
 }
@@ -237,11 +240,12 @@ const FORMS = {
     ['§', 'Партия'],
     ['date', 'Дата производства', 'date', true], ['shift', 'Смена', SHIFTS, true],
     ['product', 'Продукт', 'text', true, 'Варенье клубничное'], ['line', 'Линия / котёл', 'text'], ['operator', 'Технолог / мастер смены', 'text', true],
-    ['§', 'Варка и ККТ'],
-    ['cookTemp', 'ККТ: T° варки, °C', 'number', true], ['cookTime', 'Время варки, мин', 'number'],
-    ['brix', 'ККТ: Brix готового, %', 'number', true], ['fillTemp', 'T° фасовки, °C', 'number'],
-    ['pasteurTemp', 'ККТ: T° пастеризации, °C', 'number', true], ['pasteurTime', 'Время пастеризации, мин', 'number'],
-    ['metalOk', 'ККТ: металлодетектор пройден', 'checkbox'], ['capOk', 'Герметичность укупорки', 'checkbox'],
+    ['§', 'Варка, КТ и ККТ'],
+    ['cookTemp', 'КТ: T° варки, °C', 'number'], ['cookTime', 'Время варки, мин', 'number'],
+    ['brix', 'КТ: Brix готового, %', 'number'], ['fillTemp', 'T° фасовки, °C', 'number'],
+    ['pasteurTemp', 'ККТ: T° стерилизации, °C', 'number', true], ['pasteurTime', 'Время стерилизации, мин', 'number'],
+    ['pressure', 'ККТ: атмосферное давление, атм', 'number', true],
+    ['capOk', 'ККТ: Герметичность укупорки', 'checkbox'],
     ['corrective', 'Корректирующее действие (при отклонении ККТ)', 'text'],
     ['§', 'Выпуск'],
     ['jars', 'Выпущено банок, шт', 'number', true], ['jarSize', 'Фасовка (г)', 'number'],
@@ -430,10 +434,10 @@ function ingredientRows(ings) {
 function viewBatches() {
   const rec = editing ? byId('batches', editing) : null;
   return journal('batches', { title: 'Производство', formTitle: 'Производственная партия (варка)', extra: ingredientRows(rec?.ingredients),
-    head: ['Код партии', 'Дата / смена', 'Продукт', 'Сырьё', 'Варка', 'Brix', 'Пастер.', 'Мет.', 'Банок', 'Остаток', 'Годен до', 'ОТК'], keys: [1, 2, 9, 11],
+    head: ['Код партии', 'Дата / смена', 'Продукт', 'Сырьё', 'Варка', 'Brix', 'Стерил.', 'Давл.', 'Банок', 'Остаток', 'Годен до', 'ОТК'], keys: [1, 2, 9, 11],
     row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${deviations(b).length ? `<br><span class="badge bad" title="${esc(deviations(b).join('; '))}">Отклонение ККТ</span>` : ''}${voidNote(b)}</td><td>${fmtD(b.date)}<br><span class="muted">${b.shift}</span></td>
     <td>${esc(b.product)}</td><td>${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return `${r?.code} ${esc(r?.material)}: ${i.qty} ${r?.unit || ''}`; }).join('<br>')}</td>
-    <td>${limCell(b, 'cookTemp', esc(b.cookTemp) + '°')} / ${esc(b.cookTime)}м</td><td>${limCell(b, 'brix', esc(b.brix))}</td><td>${limCell(b, 'pasteurTemp', esc(b.pasteurTemp) + '°')} / ${limCell(b, 'pasteurTime', esc(b.pasteurTime) + 'м')}</td><td>${okMark(b.metalOk)}</td>
+    <td>${limCell(b, 'cookTemp', esc(b.cookTemp) + '°')} / ${esc(b.cookTime)}м</td><td>${limCell(b, 'brix', esc(b.brix))}</td><td>${limCell(b, 'pasteurTemp', esc(b.pasteurTemp) + '°')} / ${limCell(b, 'pasteurTime', esc(b.pasteurTime) + 'м')}</td><td>${limCell(b, 'pressure', esc(b.pressure))}</td>
     <td>${b.jars}</td><td>${restOfBatch(b)}</td><td>${fmtD(b.bestBefore)}</td><td>${okMark(b.released)}</td>${actions('batches', b)}</tr>` });
 }
 
@@ -549,8 +553,8 @@ function backTrace(b) {
     <div class="recall">Выпущено <b>${b.jars}</b> банок: отгружено <b>${shippedOfBatch(b.id)}</b>${cust.size ? ` — ${[...cust].map(([c, x]) => `${esc(c)} (${x.qty})`).join(', ')}` : ''}; на складе <b>${restOfBatch(b)}</b>.</div>
     <div class="chain"><h3>Производство</h3>
     <div>Дата: <b>${fmtD(b.date)}</b>, <span class="pill">${b.shift}</span>, линия: ${esc(b.line) || '—'}, ответственный: <b>${esc(b.operator)}</b></div>
-    <div>ККТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C;
-      пастеризация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; металлодетектор ${okMark(b.metalOk)}; укупорка ${okMark(b.capOk)}</div>
+    <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C</div>
+    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм; герметичность укупорки ${okMark(b.capOk)}</div>
     <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${okMark(b.released)}</div>
     ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
@@ -585,7 +589,7 @@ function viewSettings() {
         <button type="button" class="btn" id="ghPull">Синхронизировать сейчас</button>
         <button type="button" class="btn danger" id="ghOff">Отключить</button></div>
     </form><p id="ghStatus" class="muted"></p></div>`;
-  const limCard = `<div class="card"><h2>Критические пределы ККТ</h2>
+  const limCard = `<div class="card"><h2>Пределы КТ и ККТ</h2>
     <p class="muted">Значение ниже предела считается отклонением: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
     <form id="limForm" class="grid">${LIMITS.map(([k, l, d]) => `<label>${l}, не ниже<input name="${k}" type="number" step="any" required value="${lim(k)}" placeholder="${d}"></label>`).join('')}
     <div class="row" style="grid-column:1/-1"><button class="btn primary">Сохранить пределы</button></div></form></div>`;
@@ -604,7 +608,7 @@ function demo() {
   const rc = (s, material, qty, unit, date, shift, code) => ({ id: uid(), code, date, time: '08:30', shift, supplierId: s.id, material, qty, unit, supplierLot: 'L' + code.slice(-2), invoice: 'ТТН ' + code.slice(2), harvestDate: date, expiry: '', transportTemp: 4, productTemp: 6, brix: material === 'Клубника' ? 8 : '', organoleptic: true, docsOk: true, pestOk: true, status: 'Принято', accepted: true, storage: 'Камера №1', responsible: 'Иванова А.', note: '' });
   const r1 = rc(s1, 'Клубника', 500, 'кг', '2026-09-28', '1 смена', 'R-260928-01');
   const r2 = rc(s2, 'Сахар', 1000, 'кг', '2026-09-28', '1 смена', 'R-260928-02');
-  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 85, pasteurTemp: 90, pasteurTime: 15, metalOk: true, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
+  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 85, pasteurTemp: 105, pasteurTime: 15, pressure: 1.3, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
   const sh = { id: uid(), date: '2026-10-01', batchId: b1.id, customer: 'Сеть «Магнит», РЦ Тула', qty: 600, invoice: 'УПД 1543', vehicle: 'А123ВС', responsible: 'Сидоров' };
   const deleted = tombstones(), now = Date.now();
   db = { suppliers: [s1, s2], receipts: [r1, r2], batches: [b1], shipments: [sh], deleted };
