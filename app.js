@@ -183,17 +183,18 @@ function ask(msg, okLabel = 'Да', danger = false) {
 }
 
 // ---------- критические пределы ККТ ----------
-// Значение ниже предела — отклонение; при отклонении обязательно корректирующее действие
+// Значение ниже предела подсвечивается. Четвёртый элемент true — ККТ: отклонение по ней
+// попадает в «Отклонения ККТ» и требует корректирующего действия; КТ (варка, Brix) только подсвечиваются
 const LIMITS = [
   ['cookTemp', 'T° варки, °C', 100], ['brix', 'Brix готового, %', 60], ['fillTemp', 'T° фасовки, °C', 80],
   // Поле называется pasteurTemp по старой памяти, теперь это T° стерилизации
-  ['pasteurTemp', 'T° стерилизации, °C', 104], ['pasteurTime', 'Время стерилизации, мин', 10],
-  ['pressure', 'Атмосферное давление, атм', 1.2],
+  ['pasteurTemp', 'T° стерилизации, °C', 104, true], ['pasteurTime', 'Время стерилизации, мин', 10, true],
+  ['pressure', 'Атмосферное давление, атм', 1.2, true],
 ];
 const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMITS.find(l => l[0] === k)[2] : +v; };
 const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
 function deviations(b) {
-  const out = LIMITS.filter(([k]) => isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
+  const out = LIMITS.filter(([k, , , ccp]) => ccp && isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
   if (!b.capOk) out.push('укупорка не герметична');
   return out;
 }
@@ -590,7 +591,7 @@ function viewSettings() {
         <button type="button" class="btn danger" id="ghOff">Отключить</button></div>
     </form><p id="ghStatus" class="muted"></p></div>`;
   const limCard = `<div class="card"><h2>Пределы КТ и ККТ</h2>
-    <p class="muted">Значение ниже предела считается отклонением: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
+    <p class="muted">Значение ниже предела подсвечивается красным. Для ККТ (стерилизация, давление) это отклонение: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
     <form id="limForm" class="grid">${LIMITS.map(([k, l, d]) => `<label>${l}, не ниже<input name="${k}" type="number" step="any" required value="${lim(k)}" placeholder="${d}"></label>`).join('')}
     <div class="row" style="grid-column:1/-1"><button class="btn primary">Сохранить пределы</button></div></form></div>`;
   return '<h1 class="page">Данные</h1>' + syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
