@@ -8,6 +8,8 @@ const COLLS = ['suppliers', 'receipts', 'batches', 'shipments'];
 const CAN_SYNC = true;
 
 // Приводит данные любой версии к текущему формату: у записей есть upd, удаления — в deleted
+const PRESSURE_FIX_BEFORE = Date.parse('2026-10-16T11:00:00Z');
+let migrated = false;
 function migrate(d) {
   d = d || {};
   COLLS.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; d[c].forEach(r => { if (r.upd == null) r.upd = 0; }); });
@@ -17,6 +19,13 @@ function migrate(d) {
   if (!d.limits || typeof d.limits !== 'object') d.limits = { upd: 0 };
   // Предел 85 был значением по умолчанию для пастеризации; для стерилизации по умолчанию 104
   if (+d.limits.pasteurTemp === 85) delete d.limits.pasteurTemp;
+  // Разовое исправление: у партий, внесённых до 16.10.2026 14:00 МСК (выход этого обновления), давление не записано или ниже 1.2 —
+  // фактически было 1.5 атм. Изменённая запись получает новое upd и больше не попадает под условие.
+  d.batches.forEach(b => {
+    if ((b.upd || 0) < PRESSURE_FIX_BEFORE && !b.voided && (b.pressure === '' || b.pressure == null || +b.pressure < 1.2)) {
+      b.pressure = 1.5; b.upd = Date.now(); migrated = true;
+    }
+  });
   return d;
 }
 let db = load();
@@ -973,6 +982,7 @@ function applyFilter() {
 }
 
 fromHash();
+if (migrated) save(); // исправления при загрузке сохраняем и отправляем на GitHub
 render();
 status(ghOn() ? (isDirty() ? 'pending' : 'ok') : 'off');
 if (ghOn()) sync();
