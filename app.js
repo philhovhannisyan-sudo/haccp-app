@@ -188,7 +188,7 @@ const LIMITS = [
   ['cookTemp', 'T° варки, °C', 100], ['brix', 'Brix готового, %', 60], ['fillTemp', 'T° фасовки, °C', 80],
   // Поле называется pasteurTemp по старой памяти, теперь это T° стерилизации
   ['pasteurTemp', 'T° стерилизации, °C', 104], ['pasteurTime', 'Время стерилизации, мин', 10],
-  ['pressure', 'Атмосферное давление', 1.2],
+  ['pressure', 'Атмосферное давление, атм', 1.2],
 ];
 const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMITS.find(l => l[0] === k)[2] : +v; };
 const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
@@ -244,7 +244,7 @@ const FORMS = {
     ['cookTemp', 'КТ: T° варки, °C', 'number'], ['cookTime', 'Время варки, мин', 'number'],
     ['brix', 'КТ: Brix готового, %', 'number'], ['fillTemp', 'T° фасовки, °C', 'number'],
     ['pasteurTemp', 'ККТ: T° стерилизации, °C', 'number', true], ['pasteurTime', 'Время стерилизации, мин', 'number'],
-    ['pressure', 'ККТ: атмосферное давление', 'number', true],
+    ['pressure', 'ККТ: атмосферное давление, атм', 'number', true],
     ['capOk', 'ККТ: Герметичность укупорки', 'checkbox'],
     ['corrective', 'Корректирующее действие (при отклонении ККТ)', 'text'],
     ['§', 'Выпуск'],
@@ -554,7 +554,7 @@ function backTrace(b) {
     <div class="chain"><h3>Производство</h3>
     <div>Дата: <b>${fmtD(b.date)}</b>, <span class="pill">${b.shift}</span>, линия: ${esc(b.line) || '—'}, ответственный: <b>${esc(b.operator)}</b></div>
     <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C</div>
-    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'}; герметичность укупорки ${okMark(b.capOk)}</div>
+    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм; герметичность укупорки ${okMark(b.capOk)}</div>
     <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${okMark(b.released)}</div>
     ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
