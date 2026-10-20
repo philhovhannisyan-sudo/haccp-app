@@ -9,6 +9,7 @@ const CAN_SYNC = true;
 
 // Приводит данные любой версии к текущему формату: у записей есть upd, удаления — в deleted
 const PRESSURE_FIX_BEFORE = Date.parse('2026-10-16T11:00:00Z');
+const MODES_FIX_BEFORE = Date.parse('2026-10-20T06:40:00Z');
 let migrated = false;
 function migrate(d) {
   d = d || {};
@@ -24,6 +25,14 @@ function migrate(d) {
   d.batches.forEach(b => {
     if ((b.upd || 0) < PRESSURE_FIX_BEFORE && !b.voided && (b.pressure === '' || b.pressure == null || +b.pressure < 1.2)) {
       b.pressure = 1.5; b.upd = Date.now(); migrated = true;
+    }
+  });
+  // Разовое исправление 2: у всех партий, внесённых до 20.10.2026 09:40 МСК, фактические режимы —
+  // фасовка 80°C, стерилизация 104°C / 10 мин, давление 1.5 атм. Варка и Brix не меняются.
+  const FIX2 = { fillTemp: 80, pasteurTemp: 104, pasteurTime: 10, pressure: 1.5 };
+  d.batches.forEach(b => {
+    if ((b.upd || 0) < MODES_FIX_BEFORE && !b.voided && Object.entries(FIX2).some(([k, v]) => +b[k] !== v || b[k] === '')) {
+      Object.assign(b, FIX2); b.upd = Date.now(); migrated = true;
     }
   });
   return d;
@@ -617,7 +626,7 @@ function demo() {
   const rc = (s, material, qty, unit, date, shift, code) => ({ id: uid(), code, date, time: '08:30', shift, supplierId: s.id, material, qty, unit, supplierLot: 'L' + code.slice(-2), invoice: 'ТТН ' + code.slice(2), harvestDate: date, expiry: '', transportTemp: 4, productTemp: 6, brix: material === 'Клубника' ? 8 : '', organoleptic: true, docsOk: true, pestOk: true, status: 'Принято', accepted: true, storage: 'Камера №1', responsible: 'Иванова А.', note: '' });
   const r1 = rc(s1, 'Клубника', 500, 'кг', '2026-09-28', '1 смена', 'R-260928-01');
   const r2 = rc(s2, 'Сахар', 1000, 'кг', '2026-09-28', '1 смена', 'R-260928-02');
-  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 85, pasteurTemp: 105, pasteurTime: 15, pressure: 1.3, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
+  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 80, pasteurTemp: 104, pasteurTime: 10, pressure: 1.5, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
   const sh = { id: uid(), date: '2026-10-01', batchId: b1.id, customer: 'Сеть «Магнит», РЦ Тула', qty: 600, invoice: 'УПД 1543', vehicle: 'А123ВС', responsible: 'Сидоров' };
   const deleted = tombstones(), now = Date.now();
   db = { suppliers: [s1, s2], receipts: [r1, r2], batches: [b1], shipments: [sh], deleted };
