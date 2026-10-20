@@ -204,7 +204,6 @@ const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMI
 const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
 function deviations(b) {
   const out = LIMITS.filter(([k, , , ccp]) => ccp && isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
-  if (!b.capOk) out.push('укупорка не герметична');
   return out;
 }
 const limCell = (b, k, text) => isOut(b, k) ? `<span class="bad" title="Ниже предела ${lim(k)}">${text}</span>` : text;
@@ -255,7 +254,7 @@ const FORMS = {
     ['brix', 'КТ: Brix готового, %', 'number'], ['fillTemp', 'T° фасовки, °C', 'number'],
     ['pasteurTemp', 'ККТ: T° стерилизации, °C', 'number', true], ['pasteurTime', 'Время стерилизации, мин', 'number'],
     ['pressure', 'ККТ: атмосферное давление, атм', 'number', true],
-    ['capOk', 'ККТ: Герметичность укупорки', 'checkbox'],
+    ['capOk', 'КТ: Герметичность укупорки', 'checkbox'],
     ['corrective', 'Корректирующее действие (при отклонении ККТ)', 'text'],
     ['§', 'Выпуск'],
     ['jars', 'Выпущено банок, шт', 'number', true], ['jarSize', 'Фасовка (г)', 'number'],
@@ -563,8 +562,8 @@ function backTrace(b) {
     <div class="recall">Выпущено <b>${b.jars}</b> банок: отгружено <b>${shippedOfBatch(b.id)}</b>${cust.size ? ` — ${[...cust].map(([c, x]) => `${esc(c)} (${x.qty})`).join(', ')}` : ''}; на складе <b>${restOfBatch(b)}</b>.</div>
     <div class="chain"><h3>Производство</h3>
     <div>Дата: <b>${fmtD(b.date)}</b>, <span class="pill">${b.shift}</span>, линия: ${esc(b.line) || '—'}, ответственный: <b>${esc(b.operator)}</b></div>
-    <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C</div>
-    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм; герметичность укупорки ${okMark(b.capOk)}</div>
+    <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C; герметичность укупорки ${okMark(b.capOk)}</div>
+    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм</div>
     <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${okMark(b.released)}</div>
     ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
