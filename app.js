@@ -9,6 +9,7 @@ const CAN_SYNC = true;
 
 // Приводит данные любой версии к текущему формату: у записей есть upd, удаления — в deleted
 const PRESSURE_FIX_BEFORE = Date.parse('2026-10-16T11:00:00Z');
+const MODES_FIX_BEFORE = Date.parse('2026-10-20T06:40:00Z');
 let migrated = false;
 function migrate(d) {
   d = d || {};
@@ -24,6 +25,14 @@ function migrate(d) {
   d.batches.forEach(b => {
     if ((b.upd || 0) < PRESSURE_FIX_BEFORE && !b.voided && (b.pressure === '' || b.pressure == null || +b.pressure < 1.2)) {
       b.pressure = 1.5; b.upd = Date.now(); migrated = true;
+    }
+  });
+  // Разовое исправление 2: у всех партий, внесённых до 20.10.2026 09:40 МСК, фактические режимы —
+  // фасовка 80°C, стерилизация 104°C / 10 мин, давление 1.5 атм. Варка и Brix не меняются.
+  const FIX2 = { fillTemp: 80, pasteurTemp: 104, pasteurTime: 10, pressure: 1.5 };
+  d.batches.forEach(b => {
+    if ((b.upd || 0) < MODES_FIX_BEFORE && !b.voided && Object.entries(FIX2).some(([k, v]) => +b[k] !== v || b[k] === '')) {
+      Object.assign(b, FIX2); b.upd = Date.now(); migrated = true;
     }
   });
   return d;
@@ -204,7 +213,6 @@ const lim = k => { const v = db.limits?.[k]; return v === '' || v == null ? LIMI
 const isOut = (b, k) => b[k] !== '' && b[k] != null && +b[k] < lim(k);
 function deviations(b) {
   const out = LIMITS.filter(([k, , , ccp]) => ccp && isOut(b, k)).map(([k, l]) => `${l}: ${b[k]} < ${lim(k)}`);
-  if (!b.capOk) out.push('укупорка не герметична');
   return out;
 }
 const limCell = (b, k, text) => isOut(b, k) ? `<span class="bad" title="Ниже предела ${lim(k)}">${text}</span>` : text;
@@ -255,7 +263,7 @@ const FORMS = {
     ['brix', 'КТ: Brix готового, %', 'number'], ['fillTemp', 'T° фасовки, °C', 'number'],
     ['pasteurTemp', 'ККТ: T° стерилизации, °C', 'number', true], ['pasteurTime', 'Время стерилизации, мин', 'number'],
     ['pressure', 'ККТ: атмосферное давление, атм', 'number', true],
-    ['capOk', 'ККТ: Герметичность укупорки', 'checkbox'],
+    ['capOk', 'КТ: Герметичность укупорки', 'checkbox'],
     ['corrective', 'Корректирующее действие (при отклонении ККТ)', 'text'],
     ['§', 'Выпуск'],
     ['jars', 'Выпущено банок, шт', 'number', true], ['jarSize', 'Фасовка (г)', 'number'],
@@ -563,8 +571,8 @@ function backTrace(b) {
     <div class="recall">Выпущено <b>${b.jars}</b> банок: отгружено <b>${shippedOfBatch(b.id)}</b>${cust.size ? ` — ${[...cust].map(([c, x]) => `${esc(c)} (${x.qty})`).join(', ')}` : ''}; на складе <b>${restOfBatch(b)}</b>.</div>
     <div class="chain"><h3>Производство</h3>
     <div>Дата: <b>${fmtD(b.date)}</b>, <span class="pill">${b.shift}</span>, линия: ${esc(b.line) || '—'}, ответственный: <b>${esc(b.operator)}</b></div>
-    <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C</div>
-    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм; герметичность укупорки ${okMark(b.capOk)}</div>
+    <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C; герметичность укупорки ${okMark(b.capOk)}</div>
+    <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм</div>
     <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${okMark(b.released)}</div>
     ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
@@ -618,7 +626,7 @@ function demo() {
   const rc = (s, material, qty, unit, date, shift, code) => ({ id: uid(), code, date, time: '08:30', shift, supplierId: s.id, material, qty, unit, supplierLot: 'L' + code.slice(-2), invoice: 'ТТН ' + code.slice(2), harvestDate: date, expiry: '', transportTemp: 4, productTemp: 6, brix: material === 'Клубника' ? 8 : '', organoleptic: true, docsOk: true, pestOk: true, status: 'Принято', accepted: true, storage: 'Камера №1', responsible: 'Иванова А.', note: '' });
   const r1 = rc(s1, 'Клубника', 500, 'кг', '2026-09-28', '1 смена', 'R-260928-01');
   const r2 = rc(s2, 'Сахар', 1000, 'кг', '2026-09-28', '1 смена', 'R-260928-02');
-  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 85, pasteurTemp: 105, pasteurTime: 15, pressure: 1.3, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
+  const b1 = { id: uid(), code: 'P-260929-01', date: '2026-09-29', shift: '1 смена', product: 'Варенье клубничное', line: 'Котёл 2', cookTemp: 105, cookTime: 40, brix: 68, fillTemp: 80, pasteurTemp: 104, pasteurTime: 10, pressure: 1.5, capOk: true, jars: 1200, jarSize: 350, bestBefore: '2028-09-29', operator: 'Петров С.', released: true, note: '', ingredients: [{ receiptId: r1.id, qty: 300 }, { receiptId: r2.id, qty: 300 }] };
   const sh = { id: uid(), date: '2026-10-01', batchId: b1.id, customer: 'Сеть «Магнит», РЦ Тула', qty: 600, invoice: 'УПД 1543', vehicle: 'А123ВС', responsible: 'Сидоров' };
   const deleted = tombstones(), now = Date.now();
   db = { suppliers: [s1, s2], receipts: [r1, r2], batches: [b1], shipments: [sh], deleted };
