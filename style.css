@@ -281,3 +281,6 @@ dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;bor
 }
 h1:focus{outline:none}
 h1:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:2px}
+/* Значок синхронизации — только облако (цвет показывает состояние, подпись — во всплывающей подсказке) */
+.sync{width:40px;height:40px;min-height:40px;padding:0;justify-content:center;align-self:flex-start}
+.sync span{display:none}

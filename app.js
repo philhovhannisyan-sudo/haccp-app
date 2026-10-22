@@ -87,7 +87,7 @@ function status(state, text = '') {
   if (state === 'error' && syncState !== 'error') toast('Данные не отправлены на GitHub. Они сохранены на этом устройстве — нажмите на значок облака, чтобы повторить.');
   syncState = state; syncText = text;
   const b = document.getElementById('syncBadge');
-  if (b) { b.className = 'sync sync-' + state; b.querySelector('span').textContent = SYNC_LABEL[state] + (state === 'ok' && lastSync ? ' ' + lastSync : ''); b.title = text || SYNC_LABEL[state]; b.setAttribute('aria-label', SYNC_LABEL[state]); }
+  if (b) { b.className = 'sync sync-' + state; b.querySelector('span').textContent = SYNC_LABEL[state] + (state === 'ok' && lastSync ? ' ' + lastSync : ''); b.title = text || b.querySelector('span').textContent; b.setAttribute('aria-label', SYNC_LABEL[state]); }
   const st = document.getElementById('ghStatus');
   if (st) { st.textContent = text || SYNC_LABEL[state]; st.className = state === 'error' ? 'bad' : 'muted'; }
 }
