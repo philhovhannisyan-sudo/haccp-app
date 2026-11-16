@@ -1,7 +1,8 @@
 // Сервис-воркер: приложение открывается и без сети.
 // Сначала сеть (чтобы обновления приходили сразу), при отсутствии сети — сохранённая копия.
-const CACHE = 'haccp-app-v2';
-const SHELL = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+const CACHE = 'haccp-app-v3';
+const SCRIPTS = ['data.js', 'sync.js', 'util.js', 'dialogs.js', 'rules.js', 'forms.js', 'app.js', 'views.js', 'handlers.js', 'tools.js', 'history.js', 'records.js', 'menu.js', 'main.js'].map(n => 'js/' + n);
+const SHELL = ['./', 'index.html', ...SCRIPTS, 'style.css', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['400', '500', '600', '700'].flatMap(w => ['latin', 'cyrillic'].map(s => `fonts/fira-sans-${s}-${w}.woff2`)),
   ...['400', '500', '600'].flatMap(w => ['latin', 'cyrillic'].map(s => `fonts/fira-code-${s}-${w}.woff2`))];
 
