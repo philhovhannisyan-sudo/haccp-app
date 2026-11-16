@@ -132,7 +132,6 @@ test('аннулирование: блокируется связями, тре�
   await expect(lastToast(page)).toContainText('Сначала аннулируйте');
   await page.goto('./#shipments');
   await page.click('[data-void="shipments:sh1"]');
-  await page.fill('dialog[open] [name=by]', 'Петров С.');
   await page.fill('dialog[open] [name=reason]', '   ');
   await page.click('dialog[open] button[value=ok]');
   await expect(page.locator('dialog[open]')).toBeVisible(); // причина из пробелов не принимается
@@ -143,7 +142,7 @@ test('аннулирование: блокируется связями, тре�
   expect([s.voided, s.voidReason, s.voidBy]).toEqual([true, 'Дубль записи', 'Петров С.']);
   expect(await page.evaluate(() => restOfBatch(byId('batches', 'b1')))).toBe(1200);
   await page.click('[data-more="shipments:sh1"]');
-  await expect(page.locator('.menu button')).toHaveText(['Восстановить', 'Удалить навсегда']);
+  await expect(page.locator('.menu button')).toHaveText(['История изменений', 'Восстановить', 'Удалить навсегда']);
   await page.click('.menu button:has-text("Восстановить")');
   await page.click('dialog[open] button[value=ok]');
   await expect(page.locator('tr.voided')).toHaveCount(0);

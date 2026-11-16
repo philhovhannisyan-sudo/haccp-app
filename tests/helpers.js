@@ -21,13 +21,15 @@ function seedData() {
 }
 
 // Открыть приложение с заданными данными. Данные кладутся один раз — перезагрузка страницы их не сбрасывает.
-async function open(page, { data = seedData(), hash = '', gh = null } = {}) {
-  await page.addInitScript(({ data, gh }) => {
+// user — ФИО устройства; null — как на новом устройстве, где его ещё не вводили.
+async function open(page, { data = seedData(), hash = '', gh = null, user = 'Петров С.' } = {}) {
+  await page.addInitScript(({ data, gh, user }) => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
     if (data) localStorage.setItem('haccp-trace-v1', JSON.stringify(data));
     if (gh) localStorage.setItem('haccp-trace-gh', JSON.stringify(gh));
-  }, { data, gh });
+    if (user) localStorage.setItem('haccp-trace-who', user);
+  }, { data, gh, user });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('./' + hash);
