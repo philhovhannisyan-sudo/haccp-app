@@ -7,10 +7,9 @@ const SHIFTS = ['1 смена', '2 смена', '3 смена'];
 const COLLS = ['suppliers', 'receipts', 'batches', 'shipments'];
 const CAN_SYNC = true;
 
+// Отметки об удалённых записях старше этого срока очищаются, чтобы файл данных не рос вечно
+const TOMBSTONE_DAYS = 180;
 // Приводит данные любой версии к текущему формату: у записей есть upd, удаления — в deleted
-const PRESSURE_FIX_BEFORE = Date.parse('2026-10-16T11:00:00Z');
-const MODES_FIX_BEFORE = Date.parse('2026-10-20T06:40:00Z');
-let migrated = false;
 function migrate(d) {
   d = d || {};
   COLLS.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; d[c].forEach(r => { if (r.upd == null) r.upd = 0; }); });
@@ -20,21 +19,8 @@ function migrate(d) {
   if (!d.limits || typeof d.limits !== 'object') d.limits = { upd: 0 };
   // Предел 85 был значением по умолчанию для пастеризации; для стерилизации по умолчанию 104
   if (+d.limits.pasteurTemp === 85) delete d.limits.pasteurTemp;
-  // Разовое исправление: у партий, внесённых до 16.10.2026 14:00 МСК (выход этого обновления), давление не записано или ниже 1.2 —
-  // фактически было 1.5 атм. Изменённая запись получает новое upd и больше не попадает под условие.
-  d.batches.forEach(b => {
-    if ((b.upd || 0) < PRESSURE_FIX_BEFORE && !b.voided && (b.pressure === '' || b.pressure == null || +b.pressure < 1.2)) {
-      b.pressure = 1.5; b.upd = Date.now(); migrated = true;
-    }
-  });
-  // Разовое исправление 2: у всех партий, внесённых до 20.10.2026 09:40 МСК, фактические режимы —
-  // фасовка 80°C, стерилизация 104°C / 10 мин, давление 1.5 атм. Варка и Brix не меняются.
-  const FIX2 = { fillTemp: 80, pasteurTemp: 104, pasteurTime: 10, pressure: 1.5 };
-  d.batches.forEach(b => {
-    if ((b.upd || 0) < MODES_FIX_BEFORE && !b.voided && Object.entries(FIX2).some(([k, v]) => +b[k] !== v || b[k] === '')) {
-      Object.assign(b, FIX2); b.upd = Date.now(); migrated = true;
-    }
-  });
+  const cutoff = Date.now() - TOMBSTONE_DAYS * 864e5;
+  for (const [id, t] of Object.entries(d.deleted)) if (!(t >= cutoff)) delete d.deleted[id];
   return d;
 }
 let db = load();
@@ -96,7 +82,15 @@ async function ghGet() {
   if (r.status === 404) return { sha: null, data: null };
   if (!r.ok) throw new Error(`GitHub ${r.status}: ${(await r.json().catch(() => ({}))).message || ''}`);
   const j = await r.json();
-  return { sha: j.sha, data: migrate(JSON.parse(b64dec(j.content))) };
+  // Файлы больше 1 МБ GitHub отдаёт без содержимого — тогда запрашиваем его отдельно, как есть
+  let text;
+  if (j.content) text = b64dec(j.content);
+  else {
+    const raw = await fetch(`${ghUrl()}?ref=${encodeURIComponent(gh.branch)}&t=${Date.now()}`, { headers: { ...ghHeaders(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' });
+    if (!raw.ok) throw new Error(`GitHub ${raw.status}: не удалось прочитать файл данных`);
+    text = await raw.text();
+  }
+  return { sha: j.sha, data: migrate(JSON.parse(text)) };
 }
 // Загрузить → объединить с локальными → при необходимости отправить. Локальные изменения не теряются.
 async function sync() {
@@ -990,7 +984,6 @@ function applyFilter() {
 }
 
 fromHash();
-if (migrated) save(); // исправления при загрузке сохраняем и отправляем на GitHub
 render();
 status(ghOn() ? (isDirty() ? 'pending' : 'ok') : 'off');
 if (ghOn()) sync();
