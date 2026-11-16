@@ -308,3 +308,10 @@ td.ings .code{white-space:nowrap}
   main{padding-bottom:calc(140px + env(safe-area-inset-bottom,0px))}
 }
 label[hidden]{display:none}
+/* Журналы на компьютере: плотнее колонки, чтобы широкие таблицы (производство) помещались без прокрутки */
+@media (min-width:821px){
+  .tbl.jr th,.tbl.jr td{padding-left:6px;padding-right:6px}
+  .tbl.jr th:first-child,.tbl.jr td:first-child{padding-left:12px}
+  .tbl.jr th:last-child,.tbl.jr td:last-child{padding-right:12px}
+  .tbl.jr td:last-child .btn{margin:0}
+}
