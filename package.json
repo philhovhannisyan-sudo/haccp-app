@@ -1,0 +1,11 @@
+{
+  "name": "haccp-app",
+  "private": true,
+  "description": "Проверки приложения HACCP-прослеживаемости. На сам сайт эти файлы не влияют.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}
