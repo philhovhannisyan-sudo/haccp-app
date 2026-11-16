@@ -179,3 +179,41 @@ test('удаление: спрятано в меню «⋯», запрещено
   expect(d.shipments).toHaveLength(0);
   expect(d.deleted.sh1).toBeGreaterThan(0);
 });
+
+test('приёмка тары: нет T° и Brix, органолептика заменена внешним видом', async ({ page }) => {
+  const errors = await open(page, { hash: '#receipts' });
+  await page.click('[data-add]');
+  const f = '#formCard ';
+  await expect(page.locator(f + '[name=brix]')).toBeVisible();
+  await page.fill(f + '[name=material]', 'Банка 0,35 л');
+  await expect(page.locator(f + '[name=kind]')).toHaveValue('Тара');
+  for (const k of ['transportTemp', 'productTemp', 'brix', 'organoleptic']) await expect(page.locator(f + `[name=${k}]`)).toBeHidden();
+  await page.selectOption(f + '[name=supplierId]', 's1');
+  await page.fill(f + '[name=qty]', '1000');
+  await page.selectOption(f + '[name=unit]', 'шт');
+  await page.check(f + '[name=packOk]'); await page.check(f + '[name=docsOk]'); await page.check(f + '[name=pestOk]');
+  await page.selectOption(f + '[name=status]', 'Принято');
+  await page.click(f + '.btn.primary');
+  await expect(page.locator('#formCard')).toHaveCount(0);
+  const r = (await stored(page)).receipts.at(-1);
+  expect([r.kind, r.brix, r.organoleptic, r.packOk]).toEqual(['Тара', '', false, true]);
+  await expect(page.locator(`tr:has-text("${r.code}") .badge.ok`).first()).toHaveText('3/3');
+  expect(errors).toEqual([]);
+});
+
+test('старые записи без вида: сахар считается ингредиентом', async ({ page }) => {
+  await open(page, { hash: '#receipts' });
+  const kinds = await page.evaluate(() => db.receipts.map(r => r.kind));
+  expect(kinds).toEqual(['Сырьё', 'Ингредиент']);
+});
+
+test('приёмка ингредиента: органолептика есть, T° и Brix нет', async ({ page }) => {
+  await open(page, { hash: '#receipts' });
+  await page.click('[data-add]');
+  await page.fill('#formCard [name=material]', 'Пектин');
+  await expect(page.locator('#formCard [name=kind]')).toHaveValue('Ингредиент');
+  for (const k of ['organoleptic', 'packOk']) await expect(page.locator(`#formCard [name=${k}]`)).toBeVisible();
+  for (const k of ['transportTemp', 'productTemp', 'brix']) await expect(page.locator(`#formCard [name=${k}]`)).toBeHidden();
+  // старый лот сахара: органолептика учитывается, проверки упаковки тогда ещё не было — она не считается непройденной
+  await expect(page.locator('tr:has-text("R-260928-02") .badge.ok').first()).toHaveText('3/3');
+});
