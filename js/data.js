@@ -8,6 +8,28 @@ const SHIFTS = ['1 смена', '2 смена', '3 смена'];
 const COLLS = ['suppliers', 'receipts', 'batches', 'shipments'];
 const CAN_SYNC = true;
 
+// Вид принимаемого материала определяет, какие показатели входного контроля к нему применимы:
+// температура и Brix нужны плодам и ягодам, но не банкам, крышкам и сахару
+const KINDS = [
+  ['Сырьё', 'Сырьё (плоды, ягоды, овощи)', ['transportTemp', 'productTemp', 'brix', 'organoleptic', 'docsOk', 'pestOk']],
+  ['Ингредиент', 'Ингредиент (сахар, пектин, кислота…)', ['packOk', 'docsOk', 'pestOk']],
+  ['Тара', 'Тара и упаковка (банки, крышки…)', ['packOk', 'docsOk', 'pestOk']],
+];
+// Все поля входного контроля, которые зависят от вида
+const CONTROL = ['transportTemp', 'productTemp', 'brix', 'organoleptic', 'packOk', 'docsOk', 'pestOk'];
+const kindFields = kind => (KINDS.find(k => k[0] === kind) || KINDS[0])[2];
+const applies = (r, k) => kindFields(r.kind).includes(k);
+// Вид по названию: прошлые приёмки того же материала, иначе по ключевым словам
+function guessKind(material, receipts = []) {
+  const m = String(material || '').trim().toLowerCase();
+  if (!m) return '';
+  const prev = receipts.filter(r => r.kind && String(r.material).trim().toLowerCase() === m).at(-1);
+  if (prev) return prev.kind;
+  if (/банк|крыш|тар[аы]|упаков|этикет|короб|ящик|плёнк|пленк|бутыл|стекл|твист|гофро/.test(m)) return 'Тара';
+  if (/сахар|пектин|кислот|соль|специ|ванил|крахмал|агар|желатин|сироп|глюкоз|фруктоз|корица|консерв/.test(m)) return 'Ингредиент';
+  return 'Сырьё';
+}
+
 // Отметки об удалённых записях старше этого срока очищаются, чтобы файл данных не рос вечно
 const TOMBSTONE_DAYS = 180;
 // Приводит данные любой версии к текущему формату: у записей есть upd, удаления — в deleted
@@ -17,6 +39,8 @@ function migrate(d) {
   if (!d.deleted || typeof d.deleted !== 'object') d.deleted = {};
   // Раньше решение по приёмке было галочкой «принято»; «нет» означало отказ или карантин — считаем карантином
   d.receipts.forEach(r => { if (!r.status) r.status = r.accepted ? 'Принято' : 'Карантин'; r.accepted = r.status === 'Принято'; });
+  // До появления вида материала все приёмки считались сырьём — определяем вид по названию
+  d.receipts.forEach(r => { if (!r.kind) r.kind = guessKind(r.material) || 'Сырьё'; });
   if (!d.limits || typeof d.limits !== 'object') d.limits = { upd: 0 };
   // Предел 85 был значением по умолчанию для пастеризации; для стерилизации по умолчанию 104
   if (+d.limits.pasteurTemp === 85) delete d.limits.pasteurTemp;

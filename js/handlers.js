@@ -25,6 +25,8 @@ function bind() {
     const old = editing ? byId(list, editing) : null;
     if (list === 'receipts') {
       o.accepted = o.status === 'Принято';
+      // Неприменимые к этому виду показатели не храним — иначе банка «провалит» органолептику
+      CONTROL.forEach(k => { if (!applies(o, k)) o[k] = k === 'transportTemp' || k === 'productTemp' || k === 'brix' ? '' : false; });
       if (!(+o.qty > 0)) return fieldErr(f.qty, 'Количество должно быть больше нуля.');
       if (old) {
         const used = usedOfReceipt(old.id);
@@ -65,6 +67,19 @@ function bind() {
     toast(editing ? 'Изменения сохранены' : `Запись ${o.code || ''} добавлена`.replace('  ', ' '), 'ok');
     editing = null; formOpen = false; formDirty = false; save(); render();
   });
+  const rf = app.querySelector('form[data-list=receipts]');
+  if (rf) {
+    // Показываем только показатели входного контроля, применимые к виду материала
+    const showKind = () => CONTROL.forEach(k => {
+      const el = rf.elements[k], on = applies({ kind: rf.kind.value }, k);
+      el.closest('label').hidden = !on; el.disabled = !on;
+    });
+    // Вид подбирается по названию, пока его не выбрали вручную
+    let auto = !editing;
+    rf.material.addEventListener('input', () => { if (auto) { const g = guessKind(rf.material.value, db.receipts.filter(live)); if (g) { rf.kind.value = g; showKind(); } } });
+    rf.kind.addEventListener('change', () => { auto = false; showKind(); });
+    showKind();
+  }
   const bf = app.querySelector('form[data-list=batches]');
   if (bf) {
     const check = () => {

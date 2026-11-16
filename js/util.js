@@ -27,7 +27,7 @@ function shiftNow() { const h = new Date().getHours(); return SHIFTS[h >= 6 && h
 function defaults(list) {
   const d = { date: today() }, l = lastVals();
   if (list === 'receipts' || list === 'batches') d.shift = shiftNow();
-  if (list === 'receipts') d.time = new Date().toTimeString().slice(0, 5);
+  if (list === 'receipts') { d.time = new Date().toTimeString().slice(0, 5); d.kind = 'Сырьё'; }
   if (list === 'suppliers') delete d.date;
   (REMEMBER[list] || []).forEach(k => { if (l[list + '.' + k]) d[k] = l[list + '.' + k]; });
   (USER_FIELDS[list] || []).forEach(k => { d[k] = getUser(); });
@@ -47,7 +47,8 @@ const releaseBadge = b => b.released ? '<span class="badge ok">Выпущено<
 const okMark = v => v ? `<span class="mark ok" role="img" aria-label="Да" title="Да">${icon('check')}</span>` : `<span class="mark bad" role="img" aria-label="Нет" title="Нет">${icon('x')}</span>`;
 // Входной контроль одной ячейкой: «3/3» или «2/3 · документы»
 function checks(r) {
-  const items = [['органолептика', r.organoleptic], ['документы', r.docsOk], ['примеси', r.pestOk]];
+  const items = [['органолептика', 'organoleptic'], ['упаковка', 'packOk'], ['документы', 'docsOk'], ['примеси', 'pestOk']]
+    .filter(([, k]) => applies(r, k)).map(([n, k]) => [n, r[k]]);
   const failed = items.filter(([, v]) => !v).map(([n]) => n);
   return `<span class="badge ${failed.length ? 'bad' : 'ok'}">${items.length - failed.length}/${items.length}${failed.length ? ' · ' + failed.join(', ') : ''}</span>`;
 }

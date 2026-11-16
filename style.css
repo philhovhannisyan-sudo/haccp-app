@@ -307,3 +307,4 @@ td.ings .code{white-space:nowrap}
   .tbl.jr .void-btn{display:none}
   main{padding-bottom:calc(140px + env(safe-area-inset-bottom,0px))}
 }
+label[hidden]{display:none}
