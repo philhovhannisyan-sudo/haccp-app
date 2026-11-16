@@ -120,7 +120,7 @@ function receiptBlock(r, used) {
       ['transportTemp', `T° трансп. ${esc(r.transportTemp) || '—'}°C`], ['productTemp', `T° прод. ${esc(r.productTemp) || '—'}°C`], ['brix', `Brix ${esc(r.brix) || '—'}`],
       ['organoleptic', `органолептика ${okMark(r.organoleptic)}`], ['packOk', `внешний вид и упаковка ${okMark(r.packOk)}`],
       ['docsOk', `документы ${okMark(r.docsOk)}`], ['pestOk', `примеси/вредители ${okMark(r.pestOk)}`],
-    ].filter(([k]) => applies(r, k)).map(([, t]) => t).join(', ')};
+    ].filter(([k]) => shown(r, k)).map(([, t]) => t).join(', ')};
       дата сбора ${fmtD(r.harvestDate) || '—'}, годен до ${fmtD(r.expiry) || '—'}; решение: ${statusBadge(r)}</div>
     ${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}</div>`;
 }

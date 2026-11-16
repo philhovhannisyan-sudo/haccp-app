@@ -201,8 +201,19 @@ test('приёмка тары: нет T° и Brix, органолептика з
   expect(errors).toEqual([]);
 });
 
-test('старые записи без вида: сахар считается ингредиентом, органолептика не требуется', async ({ page }) => {
+test('старые записи без вида: сахар считается ингредиентом', async ({ page }) => {
   await open(page, { hash: '#receipts' });
   const kinds = await page.evaluate(() => db.receipts.map(r => r.kind));
   expect(kinds).toEqual(['Сырьё', 'Ингредиент']);
+});
+
+test('приёмка ингредиента: органолептика есть, T° и Brix нет', async ({ page }) => {
+  await open(page, { hash: '#receipts' });
+  await page.click('[data-add]');
+  await page.fill('#formCard [name=material]', 'Пектин');
+  await expect(page.locator('#formCard [name=kind]')).toHaveValue('Ингредиент');
+  for (const k of ['organoleptic', 'packOk']) await expect(page.locator(`#formCard [name=${k}]`)).toBeVisible();
+  for (const k of ['transportTemp', 'productTemp', 'brix']) await expect(page.locator(`#formCard [name=${k}]`)).toBeHidden();
+  // старый лот сахара: органолептика учитывается, проверки упаковки тогда ещё не было — она не считается непройденной
+  await expect(page.locator('tr:has-text("R-260928-02") .badge.ok').first()).toHaveText('3/3');
 });

@@ -48,7 +48,7 @@ const okMark = v => v ? `<span class="mark ok" role="img" aria-label="Да" titl
 // Входной контроль одной ячейкой: «3/3» или «2/3 · документы»
 function checks(r) {
   const items = [['органолептика', 'organoleptic'], ['упаковка', 'packOk'], ['документы', 'docsOk'], ['примеси', 'pestOk']]
-    .filter(([, k]) => applies(r, k)).map(([n, k]) => [n, r[k]]);
+    .filter(([, k]) => shown(r, k)).map(([n, k]) => [n, r[k]]);
   const failed = items.filter(([, v]) => !v).map(([n]) => n);
   return `<span class="badge ${failed.length ? 'bad' : 'ok'}">${items.length - failed.length}/${items.length}${failed.length ? ' · ' + failed.join(', ') : ''}</span>`;
 }
