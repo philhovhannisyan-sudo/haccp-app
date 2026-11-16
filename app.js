@@ -141,9 +141,14 @@ const fmtD = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? `${d.slice(8, 10)}.${d.s
 const toIso = q => { const m = q.match(/^(\d{2})\.(\d{2})\.(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : q; };
 const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
-// Последние введённые ФИО, место хранения, линия — подставляются в новые записи
+// Кто работает на этом устройстве: ФИО вводится один раз и пишется в историю изменений
+const WHO_KEY = 'haccp-trace-who';
+function getUser() { try { return (localStorage.getItem(WHO_KEY) || '').trim(); } catch { return ''; } }
+function setUser(name) { try { localStorage.setItem(WHO_KEY, name.trim()); } catch {} }
+// Последние введённые место хранения и линия подставляются в новые записи; в поля ФИО — ФИО устройства
 const LAST_KEY = 'haccp-trace-last';
-const REMEMBER = { receipts: ['responsible', 'storage'], batches: ['operator', 'line'], shipments: ['responsible'] };
+const REMEMBER = { receipts: ['storage'], batches: ['line'] };
+const USER_FIELDS = { receipts: ['responsible'], batches: ['operator'], shipments: ['responsible'] };
 function lastVals() { try { return JSON.parse(localStorage.getItem(LAST_KEY)) || {}; } catch { return {}; } }
 function rememberVals(list, o) {
   const l = lastVals();
@@ -157,6 +162,7 @@ function defaults(list) {
   if (list === 'receipts') d.time = new Date().toTimeString().slice(0, 5);
   if (list === 'suppliers') delete d.date;
   (REMEMBER[list] || []).forEach(k => { if (l[list + '.' + k]) d[k] = l[list + '.' + k]; });
+  (USER_FIELDS[list] || []).forEach(k => { d[k] = getUser(); });
   return d;
 }
 // Ошибка у конкретного поля — подсказка браузера рядом с полем, а не уведомление внизу
@@ -377,6 +383,7 @@ function crudForm(list, title, extra = '') {
   const rec = editing ? byId(list, editing) : null;
   return `<div class="card" id="formCard"><h2>${rec ? 'Редактирование ' + esc(rec.code || rec.name) : title}</h2>
     <form class="grid" data-list="${list}">${FORMS[list].map(f => field(f, (rec || defaults(list))[f[0]], list)).join('')}${extra}
+    ${rec ? `<label class="reason" style="grid-column:1/-1"><span class="lt">Причина изменения <span class="req" aria-hidden="true" hidden>*</span></span><input type="text" name="_reason" placeholder="например: исправлена опечатка"></label>` : ''}
     <div class="row"><button class="btn primary">${rec ? 'Сохранить' : 'Добавить'}</button>
     <button type="button" class="btn" data-cancel>Отмена</button></div></form></div>`;
 }
@@ -410,19 +417,20 @@ const actions = (list, r) => `<td class="noprint">${live(r) ? `<button class="bt
 const tr = r => `<tr${r.voided ? ' class="voided"' : ''}>`;
 const fmtTs = t => t ? new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 const voidBadge = r => r.voided ? ` <span class="badge void" title="${esc(r.voidReason)}">Аннулировано</span>` : '';
+const histMark = r => wasEdited(r) ? ` <span class="badge edited" title="Запись изменялась — см. «История изменений» в меню «⋯»">изменено</span>` : '';
 const voidNote = r => r.voided ? `<div class="void-note"><span class="badge void">Аннулировано</span> ${esc(r.voidReason)}<span class="muted"> — ${esc(r.voidBy)}, ${fmtTs(r.voidAt)}</span></div>` : '';
 
 function viewSuppliers() {
   return journal('suppliers', { title: 'Поставщики', formTitle: 'Новый поставщик', reverse: false,
     head: ['Наименование', 'ИНН', 'Адрес', 'Контакт', 'Сертификаты', 'Одобрен', 'Поставок'], keys: [5, 6],
-    row: s => `${tr(s)}<td>${esc(s.name)}${voidNote(s)}</td><td>${esc(s.inn)}</td><td>${esc(s.address)}</td><td>${esc(s.phone)}</td>
+    row: s => `${tr(s)}<td>${esc(s.name)}${histMark(s)}${voidNote(s)}</td><td>${esc(s.inn)}</td><td>${esc(s.address)}</td><td>${esc(s.phone)}</td>
     <td>${esc(s.certificate)}</td><td>${okMark(s.approved)}</td><td>${db.receipts.filter(r => live(r) && r.supplierId === s.id).length}</td>${actions('suppliers', s)}</tr>` });
 }
 
 function viewReceipts() {
   return journal('receipts', { title: 'Приёмка сырья', formTitle: 'Приёмка сырья (журнал входного контроля)',
     head: ['Лот', 'Дата / смена', 'Поставщик', 'Сырьё', 'Кол-во', 'Остаток', 'T°', 'Brix', 'Контроль', 'Статус', 'Принял'], keys: [1, 3, 5, 9],
-    row: r => `${tr(r)}<td><a href="#" data-trace="${r.code}">${r.code}</a>${voidNote(r)}</td><td>${fmtD(r.date)} ${esc(r.time)}<br><span class="muted">${r.shift}</span></td>
+    row: r => `${tr(r)}<td><a href="#" data-trace="${r.code}">${r.code}</a>${histMark(r)}${voidNote(r)}</td><td>${fmtD(r.date)} ${esc(r.time)}<br><span class="muted">${r.shift}</span></td>
     <td>${esc(byId('suppliers', r.supplierId)?.name)}</td><td>${esc(r.material)}<br><span class="muted">${esc(r.supplierLot)}</span></td>
     <td>${r.qty} ${r.unit}</td><td>${restOfReceipt(r)} ${r.unit}</td><td>${esc(r.productTemp)}</td><td>${esc(r.brix)}</td>
     <td>${checks(r)}</td>
@@ -447,7 +455,7 @@ function viewBatches() {
   const rec = editing ? byId('batches', editing) : null;
   return journal('batches', { title: 'Производство', formTitle: 'Производственная партия (варка)', extra: ingredientRows(rec?.ingredients),
     head: ['Код партии', 'Дата / смена', 'Продукт', 'Сырьё', 'Варка', 'Brix', 'Стерил.', 'Давл.', 'Банок', 'Остаток', 'Годен до', 'ОТК'], keys: [1, 2, 9, 11],
-    row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${deviations(b).length ? `<br><span class="badge bad" title="${esc(deviations(b).join('; '))}">Отклонение ККТ</span>` : ''}${voidNote(b)}</td><td>${fmtD(b.date)}<br><span class="muted">${b.shift}</span></td>
+    row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${deviations(b).length ? `<br><span class="badge bad" title="${esc(deviations(b).join('; '))}">Отклонение ККТ</span>` : ''}${histMark(b)}${voidNote(b)}</td><td>${fmtD(b.date)}<br><span class="muted">${b.shift}</span></td>
     <td>${esc(b.product)}</td><td>${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return `${r?.code} ${esc(r?.material)}: ${i.qty} ${r?.unit || ''}`; }).join('<br>')}</td>
     <td>${limCell(b, 'cookTemp', esc(b.cookTemp) + '°')} / ${esc(b.cookTime)}м</td><td>${limCell(b, 'brix', esc(b.brix))}</td><td>${limCell(b, 'pasteurTemp', esc(b.pasteurTemp) + '°')} / ${limCell(b, 'pasteurTime', esc(b.pasteurTime) + 'м')}</td><td>${limCell(b, 'pressure', esc(b.pressure))}</td>
     <td>${b.jars}</td><td>${restOfBatch(b)}</td><td>${fmtD(b.bestBefore)}</td><td>${okMark(b.released)}</td>${actions('batches', b)}</tr>` });
@@ -456,7 +464,7 @@ function viewBatches() {
 function viewShipments() {
   return journal('shipments', { title: 'Реализация', formTitle: 'Отгрузка / реализация',
     head: ['Дата', 'Партия', 'Продукт', 'Покупатель', 'Банок', 'Накладная', 'Транспорт'], keys: [1, 3, 4],
-    row: s => { const b = byId('batches', s.batchId); return `${tr(s)}<td>${fmtD(s.date)}${voidNote(s)}</td>
+    row: s => { const b = byId('batches', s.batchId); return `${tr(s)}<td>${fmtD(s.date)}${histMark(s)}${voidNote(s)}</td>
     <td><a href="#" data-trace="${b?.code}">${b?.code}</a></td><td>${esc(b?.product)}</td><td>${esc(s.customer)}</td><td>${s.qty}</td>
     <td>${esc(s.invoice)}</td><td>${esc(s.vehicle)}</td>${actions('shipments', s)}</tr>`; } });
 }
@@ -601,11 +609,14 @@ function viewSettings() {
         <button type="button" class="btn" id="ghPull">Синхронизировать сейчас</button>
         <button type="button" class="btn danger" id="ghOff">Отключить</button></div>
     </form><p id="ghStatus" class="muted"></p></div>`;
+  const userCard = `<div class="card"><h2>Кто работает на этом устройстве</h2>
+    <p class="muted">ФИО записывается в историю изменений и подставляется в поля «Принял», «Технолог», «Отгрузил». Хранится только на этом устройстве. Это не вход с паролем: под этим именем работает любой, у кого устройство в руках.</p>
+    <form id="userForm" class="row"><label style="flex:1;min-width:220px">ФИО<input name="who" required autocomplete="name" value="${esc(getUser())}"></label><button class="btn primary">Сохранить</button></form></div>`;
   const limCard = `<div class="card"><h2>Пределы КТ и ККТ</h2>
     <p class="muted">Значение ниже предела подсвечивается красным. Для ККТ (стерилизация, давление) это отклонение: партия попадает в «Отклонения ККТ», и при сохранении нужно указать корректирующее действие.</p>
     <form id="limForm" class="grid">${LIMITS.map(([k, l, d]) => `<label>${l}, не ниже<input name="${k}" type="number" step="any" required value="${lim(k)}" placeholder="${d}"></label>`).join('')}
     <div class="row" style="grid-column:1/-1"><button class="btn primary">Сохранить пределы</button></div></form></div>`;
-  return '<h1 class="page">Данные</h1>' + syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
+  return '<h1 class="page">Данные</h1>' + userCard + syncCard + limCard + `<div class="card"><h2>Резервная копия</h2><div class="row">
     <button class="btn primary" id="exp">${icon('down')} Экспорт JSON</button>
     <label class="btn">${icon('up')} Импорт JSON<input type="file" id="imp" accept=".json" hidden></label>
     <button class="btn" id="demo">Загрузить демо-данные</button>
@@ -632,6 +643,8 @@ function demo() {
 function bind() {
   app.querySelectorAll('form[data-list]').forEach(f => f.onsubmit = async e => {
     e.preventDefault();
+    const by = await needUser();
+    if (!by) return;
     const list = f.dataset.list, o = readForm(f, FORMS[list]);
     if (list === 'batches') {
       const rows = [...f.querySelectorAll('.ing')].map(el => ({ lot: el.querySelector('[name=ingLot]'), q: el.querySelector('[name=ingQty]') }));
@@ -674,8 +687,15 @@ function bind() {
       if (!b.released && !await ask(`Партия ${b.code} не одобрена ОТК. Всё равно отгрузить?`, 'Отгрузить')) return;
     }
     o.upd = Date.now();
-    if (editing) Object.assign(byId(list, editing), o);
-    else {
+    if (old) {
+      const ch = changes(list, old, o);
+      if (!ch.length) { editing = null; formOpen = false; formDirty = false; render(); return toast('Изменений нет', 'ok'); }
+      const reason = f._reason.value.trim();
+      if (!reason && needsReason(list, ch)) return fieldErr(f._reason, 'Изменено значение ККТ или решение по приёмке — укажите причину.');
+      Object.assign(old, o);
+      logHist(old, { act: 'edit', by, ch, ...(reason ? { reason } : {}) });
+    } else {
+      logHist(o, { act: 'create', by });
       o.id = uid();
       if (list === 'receipts') o.code = nextCode('R', o.date, 'receipts');
       if (list === 'batches') o.code = nextCode('P', o.date, 'batches');
@@ -714,6 +734,12 @@ function bind() {
     });
   }
   app.querySelector('form[data-list]')?.addEventListener('input', () => { formDirty = true; });
+  const ef = editing && app.querySelector('form[data-list]');
+  if (ef) {
+    const list = ef.dataset.list, old = byId(list, editing);
+    const mark = () => { ef.querySelector('.reason .req').hidden = !needsReason(list, changes(list, old, { ...readForm(ef, FORMS[list]), ingredients: old.ingredients })); };
+    ef.addEventListener('input', mark); ef.addEventListener('change', mark);
+  }
   app.querySelector('[data-cancel]')?.addEventListener('click', async () => { if (!await canLeave()) return; editing = null; formOpen = false; formDirty = false; render(); });
   app.querySelector('[data-add]')?.addEventListener('click', () => { formOpen = true; formDirty = false; render(); showForm(); });
   app.querySelector('[data-unflag]')?.addEventListener('click', () => { flag = null; render(); pushHash(); });
@@ -758,6 +784,7 @@ function bind() {
   app.querySelectorAll('[data-more]').forEach(b => b.onclick = () => {
     const [list, id] = b.dataset.more.split(':'), r = byId(list, id);
     menu(b, [
+      ...(r.hist?.length ? [{ label: 'История изменений', icon: 'history', run: () => showHistory(list, id) }] : []),
       ...(r.voided ? [{ label: 'Восстановить', icon: 'undo', run: () => restoreRecord(list, id) }] : []),
       { label: 'Удалить навсегда', icon: 'trash', danger: true, run: () => deleteRecord(list, id) },
     ]);
@@ -778,6 +805,12 @@ function bind() {
   app.querySelector('#imp')?.addEventListener('change', async e => {
     try { db = merge(db, migrate(JSON.parse(await e.target.files[0].text()))); save(); render(); } catch { toast('Не удалось прочитать файл: нужен JSON, сохранённый кнопкой «Экспорт JSON»'); }
   });
+  const uf = app.querySelector('#userForm');
+  if (uf) uf.onsubmit = e => {
+    e.preventDefault();
+    if (!uf.who.value.trim()) return fieldErr(uf.who, 'Укажите ФИО.');
+    setUser(uf.who.value); toast('ФИО сохранено', 'ok');
+  };
   const lf = app.querySelector('#limForm');
   if (lf) lf.onsubmit = e => {
     e.preventDefault();
@@ -860,6 +893,68 @@ async function scan() {
   })();
 }
 
+// ---------- история изменений ----------
+// У записи hist — список событий: создание, правка (что было → что стало), аннулирование, восстановление.
+// История не обрезается и хранится вместе с записью.
+const REASON_FIELDS = { batches: ['pasteurTemp', 'pasteurTime', 'pressure'], receipts: ['status'] };
+const logHist = (r, e) => { (r.hist ||= []).push({ t: Date.now(), ...e }); };
+const wasEdited = r => !!r.hist?.some(h => h.act === 'edit');
+const needsReason = (list, ch) => ch.some(([k]) => REASON_FIELDS[list]?.includes(k));
+const ingKey = a => (a || []).map(i => `${i.receiptId}:${+i.qty}`).sort().join('|');
+// Что изменилось в форме по сравнению с записью: [[поле, было, стало], …]
+function changes(list, old, o) {
+  const ch = [];
+  for (const [k, , type] of FORMS[list]) {
+    if (k === '§') continue;
+    const same = type === 'checkbox' ? !!old[k] === !!o[k] : String(old[k] ?? '') === String(o[k] ?? '');
+    if (!same) ch.push([k, old[k] ?? '', o[k]]);
+  }
+  if (list === 'batches' && ingKey(old.ingredients) !== ingKey(o.ingredients)) ch.push(['ingredients', old.ingredients, o.ingredients]);
+  return ch;
+}
+// Спросить ФИО, если на устройстве оно ещё не указано; без него правки не сохраняются
+function needUser() {
+  const u = getUser();
+  if (u) return Promise.resolve(u);
+  const d = document.createElement('dialog');
+  d.className = 'ask'; d.setAttribute('aria-labelledby', 'userTitle');
+  d.innerHTML = `<form method="dialog"><h3 id="userTitle">Кто работает на этом устройстве?</h3>
+    <p class="muted">ФИО вводится один раз и записывается в историю изменений. Изменить его можно во вкладке «Данные».</p>
+    <label>ФИО<input name="who" required autocomplete="name"></label>
+    <div class="row"><button value="" class="btn" formnovalidate>Отмена</button><button value="ok" class="btn primary">Сохранить</button></div></form>`;
+  const f = d.querySelector('form');
+  f.addEventListener('submit', e => { if (e.submitter?.value === 'ok' && !f.who.value.trim()) { e.preventDefault(); f.who.value = ''; f.who.reportValidity(); } });
+  document.body.append(d); d.showModal();
+  return new Promise(res => d.addEventListener('close', () => {
+    const name = d.returnValue === 'ok' ? f.who.value.trim() : '';
+    if (name) setUser(name);
+    res(name || null); d.remove();
+  }));
+}
+const fieldLabel = (list, k) => k === 'ingredients' ? 'Использованное сырьё' : FORMS[list].find(f => f[0] === k)?.[1] || k;
+function fieldValue(list, k, v) {
+  if (k === 'ingredients') return (v || []).map(i => { const r = byId('receipts', i.receiptId); return `${r?.code || '?'} ${r?.material || ''}: ${i.qty} ${r?.unit || ''}`.trim(); }).join('; ') || '—';
+  const type = FORMS[list].find(f => f[0] === k)?.[2];
+  if (type === 'checkbox') return v ? 'Да' : 'Нет';
+  if (v === '' || v == null) return '—';
+  if (k === 'supplierId') return byId('suppliers', v)?.name || '?';
+  if (k === 'batchId') return byId('batches', v)?.code || '?';
+  return type === 'date' ? fmtD(v) : String(v);
+}
+const HIST_ACT = { create: 'Запись создана', edit: 'Изменено', void: 'Аннулировано', restore: 'Восстановлено' };
+function showHistory(list, id) {
+  const r = byId(list, id);
+  const d = document.createElement('dialog');
+  d.className = 'ask hist'; d.setAttribute('aria-labelledby', 'histTitle');
+  d.innerHTML = `<form method="dialog"><h3 id="histTitle">История изменений: ${esc(recName(list, r))}</h3>
+    <ol>${[...(r.hist || [])].reverse().map(h => `<li><div><b>${HIST_ACT[h.act] || esc(h.act)}</b> <span class="muted">— ${esc(h.by)}, ${fmtTs(h.t)}</span></div>
+      ${h.ch ? `<ul>${h.ch.map(([k, a, b]) => `<li>${esc(fieldLabel(list, k))}: <s>${esc(fieldValue(list, k, a))}</s> → <b>${esc(fieldValue(list, k, b))}</b></li>`).join('')}</ul>` : ''}
+      ${h.reason ? `<div>Причина: ${esc(h.reason)}</div>` : ''}</li>`).join('')}</ol>
+    <div class="row"><button class="btn primary">Закрыть</button></div></form>`;
+  document.body.append(d); d.showModal();
+  d.addEventListener('close', () => d.remove());
+}
+
 // ---------- аннулирование, восстановление, удаление ----------
 const recName = (list, r) => r.code || (list === 'suppliers' ? r.name : `отгрузка ${r.date} · ${r.customer}`);
 // Активные записи, которые ссылаются на эту: пока они есть, аннулировать нельзя — остатки разойдутся
@@ -868,35 +963,31 @@ function activeLinks(list, id) {
   if (list === 'batches') return db.shipments.filter(s => live(s) && s.batchId === id).map(s => `отгрузка ${s.date} · ${s.customer}`);
   return [];
 }
-const WHO_KEY = 'haccp-trace-who';
-function askVoid(name) {
-  let who = ''; try { who = localStorage.getItem(WHO_KEY) || ''; } catch {}
+function askVoid(name, by) {
   const d = document.createElement('dialog');
   d.className = 'ask'; d.setAttribute('aria-labelledby', 'voidTitle');
   d.innerHTML = `<form method="dialog"><h3 id="voidTitle">Аннулировать: ${esc(name)}?</h3>
     <p class="muted">Запись останется в журнале и в прослеживании с пометкой «Аннулировано», но перестанет учитываться в остатках и сводке.</p>
     <label>Причина<textarea name="reason" rows="3" required placeholder="например: ошибка ввода, дубль записи, возврат поставщику"></textarea></label>
-    <label>Кто аннулирует (ФИО)<input name="by" required value="${esc(who)}"></label>
+    <p class="muted">Аннулирует: <b>${esc(by)}</b></p>
     <div class="row"><button value="" class="btn" formnovalidate>Отмена</button><button value="ok" class="btn danger-solid">Аннулировать</button></div></form>`;
   const f = d.querySelector('form');
   // Причина из одних пробелов не считается
   f.addEventListener('submit', e => {
-    if (e.submitter?.value !== 'ok') return;
-    for (const el of [f.reason, f.by]) if (!el.value.trim()) { e.preventDefault(); el.value = ''; el.reportValidity(); return; }
+    if (e.submitter?.value === 'ok' && !f.reason.value.trim()) { e.preventDefault(); f.reason.value = ''; f.reason.reportValidity(); }
   });
   document.body.append(d); d.showModal();
-  return new Promise(res => d.addEventListener('close', () => {
-    const ok = d.returnValue === 'ok';
-    res(ok ? { reason: f.reason.value.trim(), by: f.by.value.trim() } : null); d.remove();
-  }));
+  return new Promise(res => d.addEventListener('close', () => { res(d.returnValue === 'ok' ? f.reason.value.trim() : null); d.remove(); }));
 }
 async function voidRecord(list, id) {
   const r = byId(list, id), links = activeLinks(list, id);
   if (links.length) return toast(`Сначала аннулируйте записи, где используется ${recName(list, r)}: ${links.join(', ')}`);
-  const v = await askVoid(recName(list, r));
-  if (!v) return;
-  try { localStorage.setItem(WHO_KEY, v.by); } catch {}
-  Object.assign(r, { voided: true, voidReason: v.reason, voidBy: v.by, voidAt: Date.now(), upd: Date.now() });
+  const by = await needUser();
+  if (!by) return;
+  const reason = await askVoid(recName(list, r), by);
+  if (!reason) return;
+  Object.assign(r, { voided: true, voidReason: reason, voidBy: by, voidAt: Date.now(), upd: Date.now() });
+  logHist(r, { act: 'void', by, reason });
   save(); render(); toast(`Аннулировано: ${recName(list, r)}`, 'ok');
 }
 // Восстановление проверяет то же, что и форма: хватает ли сырья и банок, живы ли связанные записи
@@ -916,7 +1007,10 @@ function restoreError(list, r) {
 async function restoreRecord(list, id) {
   const r = byId(list, id), err = restoreError(list, r);
   if (err) return toast(err);
+  const by = await needUser();
+  if (!by) return;
   if (!await ask(`Восстановить: ${recName(list, r)}? Пометка об аннулировании будет снята.`, 'Восстановить')) return;
+  logHist(r, { act: 'restore', by });
   r.voided = false; delete r.voidReason; delete r.voidBy; delete r.voidAt; r.upd = Date.now();
   save(); render(); toast(`Восстановлено: ${recName(list, r)}`, 'ok');
 }
