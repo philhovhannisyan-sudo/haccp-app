@@ -136,6 +136,7 @@ function bind() {
       b.setAttribute('aria-expanded', open); b.textContent = open ? 'Свернуть' : 'Подробнее';
     });
   }
+  app.querySelector('#fToggle')?.addEventListener('click', () => { filtersOpen = !filtersOpen; render(); });
   const ss = app.querySelector('#sortSel');
   if (ss) ss.onchange = () => { const [i, dir] = ss.value.split(':').map(Number); if (ss.value) sortState[tab] = { i, dir }; else delete sortState[tab]; render(); };
   app.querySelector('#csv')?.addEventListener('click', () => exportCsv(jt));
@@ -144,6 +145,8 @@ function bind() {
   app.querySelectorAll('[data-more]').forEach(b => b.onclick = () => {
     const [list, id] = b.dataset.more.split(':'), r = byId(list, id);
     menu(b, [
+      // На телефоне «Аннулировать» убрано из карточки в это меню
+      ...(live(r) && matchMedia('(max-width:820px)').matches ? [{ label: 'Аннулировать', icon: 'ban', run: () => voidRecord(list, id) }] : []),
       ...(r.hist?.length ? [{ label: 'История изменений', icon: 'history', run: () => showHistory(list, id) }] : []),
       ...(r.voided ? [{ label: 'Восстановить', icon: 'undo', run: () => restoreRecord(list, id) }] : []),
       { label: 'Удалить навсегда', icon: 'trash', danger: true, run: () => deleteRecord(list, id) },

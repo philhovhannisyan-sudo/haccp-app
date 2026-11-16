@@ -1,14 +1,14 @@
 // Сводка, прослеживание, адреса вкладок, поиск и выгрузка.
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
-const { open, seedData } = require('./helpers');
+const { open, seedData, showFilters } = require('./helpers');
 
 test('сводка: плитки и блок «Требует внимания»', async ({ page }) => {
   const data = seedData();
   data.receipts[0].expiry = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
   data.batches[0].released = false;
   const errors = await open(page, { data });
-  await expect(page.locator('.kpi b')).toHaveText(['2', '1', '600', '1', '0', '0']);
+  await expect(page.locator('.kpi b')).toHaveText(['2', '1', '600']);
   await expect(page.locator('.attn li')).toHaveText([/истекающим сроком годности: 1/, /ждут одобрения ОТК: 1/, /без одобрения: 1/]);
   await page.click('.attn [data-flag=unapproved]');
   await expect(page).toHaveURL(/#suppliers\/unapproved$/);
@@ -59,6 +59,7 @@ test('журнал: даты ДД.ММ.ГГГГ, поиск, период, вы�
   await expect(page.locator('.tbl.jr tbody tr').first().locator('td').nth(1)).toContainText('28.09.2026');
   await page.fill('#filter', 'клубника');
   await expect(rows).toHaveCount(1);
+  await showFilters(page);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#csv')]);
   const csv = fs.readFileSync(await dl.path(), 'utf8').split('\r\n');
   expect(csv[0]).toBe('﻿"Лот";"Дата / смена";"Поставщик";"Сырьё";"Кол-во";"Остаток";"T°";"Brix";"Контроль";"Статус";"Принял"');

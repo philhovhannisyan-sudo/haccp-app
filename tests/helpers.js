@@ -45,4 +45,14 @@ async function fillBatch(page, over = {}) {
   await page.selectOption('#formCard [name=ingLot]', 'r1');
   await page.fill('#formCard [name=ingQty]', v.ingQty);
 }
-module.exports = { seedData, open, stored, lastToast, fillBatch, T0 };
+// Аннулировать запись: на компьютере — кнопкой в строке, на телефоне — через меню «⋯»
+async function voidRec(page, key) {
+  if (await page.locator(`[data-void="${key}"]`).isVisible()) return page.click(`[data-void="${key}"]`);
+  await page.click(`[data-more="${key}"]`);
+  await page.click('.menu button:has-text("Аннулировать")');
+}
+// На телефоне период, сортировка и выгрузка спрятаны за кнопкой «Фильтры»
+async function showFilters(page) {
+  if (await page.locator('#fToggle').isVisible()) await page.click('#fToggle');
+}
+module.exports = { seedData, open, stored, lastToast, fillBatch, voidRec, showFilters, T0 };

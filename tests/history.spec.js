@@ -1,6 +1,6 @@
 // ФИО устройства и история изменений.
 const { test, expect } = require('@playwright/test');
-const { open, seedData, stored, lastToast } = require('./helpers');
+const { open, seedData, stored, lastToast, voidRec } = require('./helpers');
 
 test('без ФИО устройства запись не сохраняется; после ввода ФИО сохраняется и запоминается', async ({ page }) => {
   await open(page, { user: null, hash: '#suppliers' });
@@ -25,7 +25,7 @@ test('без ФИО устройства запись не сохраняетс�
 
 test('без ФИО устройства нельзя аннулировать', async ({ page }) => {
   await open(page, { user: null, hash: '#shipments' });
-  await page.click('[data-void="shipments:sh1"]');
+  await voidRec(page, 'shipments:sh1');
   await expect(page.locator('dialog[open] h3')).toHaveText('Кто работает на этом устройстве?');
   await page.click('dialog[open] button[value=""]');
   await expect(page.locator('dialog')).toHaveCount(0);
@@ -130,7 +130,7 @@ test('изменение состава сырья попадает в исто�
 
 test('аннулирование и восстановление пишутся в историю от имени устройства', async ({ page }) => {
   await open(page, { hash: '#shipments' });
-  await page.click('[data-void="shipments:sh1"]');
+  await voidRec(page, 'shipments:sh1');
   await expect(page.locator('dialog[open]')).toContainText('Аннулирует: Петров С.');
   await page.fill('dialog[open] [name=reason]', 'Дубль');
   await page.click('dialog[open] button[value=ok]');
@@ -147,7 +147,9 @@ test('аннулирование и восстановление пишутся 
 test('у записей без истории пункта «История изменений» нет', async ({ page }) => {
   await open(page, { hash: '#batches' });
   await page.click('[data-more="batches:b1"]');
-  await expect(page.locator('.menu button')).toHaveText(['Удалить навсегда']);
+  // на телефоне в меню ещё «Аннулировать» — его убрали из карточки
+  const phone = test.info().project.name === 'phone';
+  await expect(page.locator('.menu button')).toHaveText([...(phone ? ['Аннулировать'] : []), 'Удалить навсегда']);
 });
 
 test('история переживает синхронизацию: побеждает более поздняя версия записи целиком', async ({ page }) => {

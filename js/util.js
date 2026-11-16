@@ -42,6 +42,8 @@ function fieldErr(el, msg) {
 const STATUS_CLS = { 'Принято': 'ok', 'Карантин': 'warn', 'Отказ': 'bad' };
 const statusBadge = r => `<span class="badge ${STATUS_CLS[r.status] || 'bad'}">${esc(r.status)}</span>`;
 const icon = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+// Решение ОТК: ожидание — рабочее состояние (янтарный), не авария
+const releaseBadge = b => b.released ? '<span class="badge ok">Выпущено</span>' : '<span class="badge warn">Ожидает</span>';
 const okMark = v => v ? `<span class="mark ok" role="img" aria-label="Да" title="Да">${icon('check')}</span>` : `<span class="mark bad" role="img" aria-label="Нет" title="Нет">${icon('x')}</span>`;
 // Входной контроль одной ячейкой: «3/3» или «2/3 · документы»
 function checks(r) {
