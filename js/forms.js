@@ -26,7 +26,7 @@ const FORMS = {
   ],
   batches: [
     ['§', 'Партия'],
-    ['date', 'Дата производства', 'date', true], ['shift', 'Смена', SHIFTS, true],
+    ['date', 'Дата производства', 'date', true], ['shift', 'Смена', SHIFTS, true], ['cookStart', 'Начало варки', 'time'],
     ['product', 'Продукт', 'text', true, 'Варенье клубничное'], ['line', 'Линия / котёл', 'text'], ['operator', 'Технолог / мастер смены', 'text', true],
     ['§', 'Варка, КТ и ККТ'],
     ['cookTemp', 'КТ: T° варки, °C', 'number'], ['cookTime', 'Время варки, мин', 'number'],
