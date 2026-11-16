@@ -1,6 +1,6 @@
 // Журналы: формы, проверки при сохранении, аннулирование, удаление.
 const { test, expect } = require('@playwright/test');
-const { open, seedData, stored, lastToast, fillBatch } = require('./helpers');
+const { open, seedData, stored, lastToast, fillBatch, voidRec } = require('./helpers');
 
 test('приёмка: новая запись получает код, решение обязательно, остаток равен количеству', async ({ page }) => {
   const errors = await open(page, { hash: '#receipts' });
@@ -89,7 +89,7 @@ test('партия: отклонение ККТ требует корректи�
   await expect(page.locator('#formCard')).toHaveCount(0);
   expect((await stored(page)).batches.at(-1).corrective).toBe('Повторная стерилизация');
   await page.goto('./#overview');
-  await expect(page.locator('.kpi[data-flag=ccp] b')).toHaveText('1');
+  await expect(page.locator('.attn [data-flag=ccp]')).toHaveText(/отклонением ККТ: 1/);
 });
 
 test('партия: выпуск нельзя уменьшить ниже отгруженного', async ({ page }) => {
@@ -128,10 +128,10 @@ test('закрытие заполненной формы спрашивает п
 
 test('аннулирование: блокируется связями, требует причину, возвращает остаток, восстанавливается', async ({ page }) => {
   const errors = await open(page, { hash: '#batches' });
-  await page.click('[data-void="batches:b1"]');
+  await voidRec(page, 'batches:b1');
   await expect(lastToast(page)).toContainText('Сначала аннулируйте');
   await page.goto('./#shipments');
-  await page.click('[data-void="shipments:sh1"]');
+  await voidRec(page, 'shipments:sh1');
   await page.fill('dialog[open] [name=reason]', '   ');
   await page.click('dialog[open] button[value=ok]');
   await expect(page.locator('dialog[open]')).toBeVisible(); // причина из пробелов не принимается
@@ -165,12 +165,14 @@ test('удаление: спрятано в меню «⋯», запрещено
   await open(page, { hash: '#batches' });
   await expect(page.locator('[data-del]')).toHaveCount(0);
   await page.click('[data-more="batches:b1"]');
-  await expect(page.locator('.menu button')).toHaveText(['Удалить навсегда']);
-  await page.click('.menu button');
+  // на телефоне в меню ещё «Аннулировать» — его убрали из карточки
+  const phone = test.info().project.name === 'phone';
+  await expect(page.locator('.menu button')).toHaveText([...(phone ? ['Аннулировать'] : []), 'Удалить навсегда']);
+  await page.click('.menu button:has-text("Удалить")');
   await expect(lastToast(page)).toContainText('удалить нельзя');
   await page.goto('./#shipments');
   await page.click('[data-more="shipments:sh1"]');
-  await page.click('.menu button');
+  await page.click('.menu button:has-text("Удалить")');
   await page.click('dialog[open] button[value=ok]');
   await expect(lastToast(page)).toHaveText('Запись удалена');
   const d = await stored(page);

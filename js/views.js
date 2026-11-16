@@ -35,9 +35,9 @@ function viewBatches() {
   return journal('batches', { title: 'Производство', formTitle: 'Производственная партия (варка)', extra: ingredientRows(rec?.ingredients),
     head: ['Код партии', 'Дата / смена', 'Продукт', 'Сырьё', 'Варка', 'Brix', 'Стерил.', 'Давл.', 'Банок', 'Остаток', 'Годен до', 'ОТК'], keys: [1, 2, 9, 11],
     row: b => `${tr(b)}<td><a href="#" data-trace="${b.code}">${b.code}</a>${deviations(b).length ? `<br><span class="badge bad" title="${esc(deviations(b).join('; '))}">Отклонение ККТ</span>` : ''}${histMark(b)}${voidNote(b)}</td><td>${fmtD(b.date)}<br><span class="muted">${b.shift}</span></td>
-    <td>${esc(b.product)}</td><td>${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return `${r?.code} ${esc(r?.material)}: ${i.qty} ${r?.unit || ''}`; }).join('<br>')}</td>
+    <td>${esc(b.product)}</td><td class="ings">${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return `<span class="code">${r?.code}</span> ${esc(r?.material)}: ${i.qty}&nbsp;${r?.unit || ''}`; }).join('<br>')}</td>
     <td>${limCell(b, 'cookTemp', esc(b.cookTemp) + '°')} / ${esc(b.cookTime)}м</td><td>${limCell(b, 'brix', esc(b.brix))}</td><td>${limCell(b, 'pasteurTemp', esc(b.pasteurTemp) + '°')} / ${limCell(b, 'pasteurTime', esc(b.pasteurTime) + 'м')}</td><td>${limCell(b, 'pressure', esc(b.pressure))}</td>
-    <td>${b.jars}</td><td>${restOfBatch(b)}</td><td>${fmtD(b.bestBefore)}</td><td>${okMark(b.released)}</td>${actions('batches', b)}</tr>` });
+    <td>${b.jars}</td><td>${restOfBatch(b)}</td><td>${fmtD(b.bestBefore)}</td><td>${releaseBadge(b)}</td>${actions('batches', b)}</tr>` });
 }
 
 function viewShipments() {
@@ -51,11 +51,10 @@ function viewShipments() {
 // ---------- сводка ----------
 function viewOverview() {
   const inStock = db.receipts.filter(FLAGS.instock.fn);
-  const rejected = db.receipts.filter(FLAGS.rejected.fn);
   const ccpFail = db.batches.filter(FLAGS.ccp.fn);
   const unreleased = db.batches.filter(FLAGS.unreleased.fn);
   const jars = db.batches.filter(live).reduce((a, b) => a + restOfBatch(b), 0);
-  const kpi = (n, label, to, alert) => `<button class="kpi ${alert && n ? 'alert' : ''}" ${FLAGS[to] ? `data-flag="${to}"` : `data-go="${to}"`}><b>${n}</b><span>${label}</span></button>`;
+  const kpi = (n, label, to) => `<button class="kpi" ${FLAGS[to] ? `data-flag="${to}"` : `data-go="${to}"`}><b>${n}</b><span>${label}</span></button>`;
   const none = text => `<p class="empty">${text}</p>`;
   if (!COLLS.some(c => db[c].length)) return `<h1 class="page">Сводка</h1><div class="card empty-start"><h2>Данных пока нет</h2>
     <p class="muted">Начните с вкладки «Поставщики», затем вносите приёмку сырья, партии и отгрузки. Чтобы посмотреть, как всё работает, загрузите демо-данные.</p>
@@ -72,17 +71,16 @@ function viewOverview() {
   const cnt = list => db[list].filter(r => live(r) && r.date === t).length;
   const todayBtn = (list, label) => `<button class="link" data-today="${list}">${label}: <b>${cnt(list)}</b></button>`;
   return `<h1 class="page">Сводка</h1>
-    <div class="cols top"><div class="card attn"><h2>${icon('alert')} Требует внимания</h2>${todo.length ? `<ul>${todo.map(([k, n, text]) => `<li><button class="link" data-flag="${k}">${text(n)}</button></li>`).join('')}</ul>` : `<p class="ok">${icon('check')} Всё в порядке</p>`}</div>
-    <div class="card"><h2>Сегодня, ${fmtD(t)}</h2><p class="today">${todayBtn('receipts', 'Приёмок')} ${todayBtn('batches', 'Партий')} ${todayBtn('shipments', 'Отгрузок')}</p></div></div>
+    <p class="today"><b>Сегодня, ${fmtD(t)}:</b> ${todayBtn('receipts', 'Приёмок')} ${todayBtn('batches', 'Партий')} ${todayBtn('shipments', 'Отгрузок')}</p>
+    <div class="card attn"><h2>${icon('alert')} Требует внимания</h2>${todo.length ? `<ul>${todo.map(([k, n, text]) => `<li><button class="link" data-flag="${k}">${text(n)}</button></li>`).join('')}</ul>` : `<p class="ok">${icon('check')} Всё в порядке</p>`}</div>
     <div class="kpis">
     ${kpi(inStock.length, 'Лотов сырья на складе', 'instock')}${kpi(db.batches.filter(live).length, 'Партий выпущено', 'batches')}
-    ${kpi(jars, 'Банок на складе ГП', 'stock')}${kpi(unreleased.length, 'Ждут одобрения ОТК', 'unreleased', true)}
-    ${kpi(ccpFail.length, 'Отклонения ККТ', 'ccp', true)}${kpi(rejected.length, 'Отказ / карантин при приёмке', 'rejected', true)}</div>
+    ${kpi(jars, 'Банок на складе ГП', 'stock')}</div>
     <div class="cols">
     <div class="card tbl"><h2>Последние партии</h2>${db.batches.length ? '' : none('Партий пока нет')}<table>
       <thead><tr><th scope="col">Код</th><th scope="col">Дата</th><th scope="col">Продукт</th><th scope="col">Банок</th><th scope="col">ОТК</th></tr></thead><tbody>
       ${recent('batches').map(b => `<tr><td><a href="#" data-trace="${b.code}">${b.code}</a></td><td class="num">${fmtD(b.date)}</td><td>${esc(b.product)}</td>
-      <td class="num">${restOfBatch(b)} / ${b.jars}</td><td>${b.released ? '<span class="badge ok">Выпущено</span>' : '<span class="badge warn">Ожидает</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <td class="num">${restOfBatch(b)} / ${b.jars}</td><td>${releaseBadge(b)}</td></tr>`).join('')}</tbody></table></div>
     <div class="card tbl"><h2>Последние поставки сырья</h2>${db.receipts.length ? '' : none('Поставок пока нет')}<table>
       <thead><tr><th scope="col">Лот</th><th scope="col">Дата</th><th scope="col">Сырьё</th><th scope="col">Остаток</th><th scope="col">Статус</th></tr></thead><tbody>
       ${recent('receipts').map(r => `<tr><td><a href="#" data-trace="${r.code}">${r.code}</a></td><td class="num">${fmtD(r.date)}</td><td>${esc(r.material)}</td>
@@ -154,7 +152,7 @@ function backTrace(b) {
     <div>Дата: <b>${fmtD(b.date)}</b>, <span class="pill">${b.shift}</span>, линия: ${esc(b.line) || '—'}, ответственный: <b>${esc(b.operator)}</b></div>
     <div>КТ: варка ${esc(b.cookTemp) || '—'}°C / ${esc(b.cookTime) || '—'} мин; Brix ${esc(b.brix) || '—'}%; фасовка ${esc(b.fillTemp) || '—'}°C; герметичность укупорки ${okMark(b.capOk)}</div>
     <div>ККТ: стерилизация ${esc(b.pasteurTemp) || '—'}°C / ${esc(b.pasteurTime) || '—'} мин; атмосферное давление ${esc(b.pressure) || '—'} атм</div>
-    <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${okMark(b.released)}</div>
+    <div>Выпуск: ${b.jars} банок × ${esc(b.jarSize) || '—'} г, годен до ${fmtD(b.bestBefore)}, ОТК ${releaseBadge(b)}</div>
     ${deviations(b).length ? `<div><span class="badge bad">Отклонение ККТ</span> ${esc(deviations(b).join('; '))}. Корректирующее действие: <b>${esc(b.corrective) || '—'}</b></div>` : ''}
     ${b.note ? `<div class="muted">${esc(b.note)}</div>` : ''}</div>
     ${b.ingredients.map(i => { const r = byId('receipts', i.receiptId); return r ? receiptBlock(r, i.qty) : ''; }).join('')}

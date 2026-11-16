@@ -53,6 +53,7 @@ document.getElementById('tabs').onclick = async e => {
 document.getElementById('syncBadge').onclick = () => ghOn() ? sync() : go('settings');
 
 // Перерисовка не должна сбрасывать фокус клавиатуры: возвращаем его на тот же элемент
+let filtersOpen = false; // на телефоне период, сортировка и выгрузка спрятаны за кнопкой «Фильтры»
 const FOCUS_ATTRS = ['id', 'data-edit', 'data-void', 'data-more', 'data-sort', 'data-flag', 'data-go', 'data-today', 'data-trace', 'data-add', 'data-showvoid', 'data-unflag'];
 function focusSel(el) {
   if (!el || !app.contains(el)) return null;
@@ -86,17 +87,19 @@ function journal(list, { title, formTitle, head, row, keys = [], extra = '', rev
   const dated = list !== 'suppliers';
   const inPeriod = r => !dated || ((!period.from || r.date >= period.from) && (!period.to || r.date <= period.to));
   const items = (reverse ? [...db[list]].reverse() : db[list]).filter(f ? f.fn : () => true).filter(inPeriod);
-  const open = formOpen || editing;
+  const open = formOpen || editing, fOpen = !!(filtersOpen || period.from || period.to);
   const per = period.from || period.to ? `за период ${period.from ? 'с ' + fmtD(period.from) : ''} ${period.to ? 'по ' + fmtD(period.to) : ''}` : 'за всё время';
   return `<div class="head"><h1 class="page">${title}</h1>${open ? '' : '<button class="btn primary noprint" data-add>+ Добавить</button>'}</div>
     ${open ? crudForm(list, formTitle, extra) : ''}
     <p class="print-only">Журнал «${title}» ${dated ? per : ''}${f ? ' · ' + esc(f.label) : ''} · распечатано ${fmtTs(Date.now())}</p>
     ${db[list].length ? `<div class="toolbar noprint"><input type="search" id="filter" value="${esc(filterText)}" placeholder="Поиск: код, дата, название, статус…" aria-label="Поиск по журналу">
-      ${dated ? `<div class="period"><label>с<input type="date" id="pFrom" value="${period.from}"></label><label>по<input type="date" id="pTo" value="${period.to}"></label>
+      <button type="button" class="btn f-toggle" id="fToggle" aria-expanded="${fOpen}">${icon('filter')} Фильтры${period.from || period.to || sortState[list] ? ' •' : ''}</button>
+      ${f ? `<button class="chip" data-unflag>${esc(f.label)} ${icon('x')}</button>` : ''}
+      <div class="more-f${fOpen ? ' open' : ''}">${dated ? `<div class="period"><label>с<input type="date" id="pFrom" value="${period.from}"></label><label>по<input type="date" id="pTo" value="${period.to}"></label>
         ${period.from || period.to ? `<button class="btn icon" id="pClear" aria-label="Сбросить период" title="Сбросить период">${icon('x')}</button>` : ''}</div>` : ''}
-      ${f ? `<button class="chip" data-unflag>${esc(f.label)} ${icon('x')}</button>` : nVoided ? `<button class="chip quiet" data-showvoid>${icon('ban')} Аннулированные: ${nVoided}</button>` : ''}
+      ${!f && nVoided ? `<button class="chip quiet" data-showvoid>${icon('ban')} Аннулированные: ${nVoided}</button>` : ''}
       ${items.length > 1 ? `<select id="sortSel" class="phone-only" aria-label="Сортировка"><option value="">Сортировка: по умолчанию</option>${head.flatMap((h, i) => [[i, 1, '↑'], [i, -1, '↓']].map(([k, d, ar]) => `<option value="${k}:${d}" ${sortState[list]?.i === k && sortState[list]?.dir === d ? 'selected' : ''}>${h} ${ar}</option>`)).join('')}</select>` : ''}
-      <span class="tools"><button class="btn" id="csv" title="Скачать таблицу для Excel">${icon('table')} Excel</button><button class="btn" onclick="print()">${icon('print')} Печать</button></span></div>` : ''}
+      <span class="tools"><button class="btn" id="csv" title="Скачать таблицу для Excel">${icon('table')} Excel</button><button class="btn" onclick="print()">${icon('print')} Печать</button></span></div></div>` : ''}
     ${items.length ? `<div class="card tbl jr"><table data-keys="${keys.join(',')}"><thead><tr>${head.map((h, i) => `<th scope="col"><button type="button" class="sort" data-sort="${i}">${h}</button></th>`).join('')}<th scope="col"></th></tr></thead><tbody>${items.map(row).join('')}</tbody></table></div>` : ''}
     <p class="empty" id="noMatch" ${items.length || (open && !db[list].length) ? 'hidden' : ''}>${db[list].length ? 'Нет записей по этому фильтру.' : 'Записей пока нет — нажмите «+ Добавить», чтобы внести первую.'}</p>`;
 }
